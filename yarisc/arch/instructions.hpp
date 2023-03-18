@@ -12,6 +12,8 @@
 
 namespace yarisc::arch
 {
+  static_assert(sizeof(word_t) == 2);
+
   /**
    * @brief Instruction opcode mask
    */
@@ -234,6 +236,14 @@ namespace yarisc::arch
   inline constexpr std::size_t operand_addr_offset = 6;
 
   /**
+   * @brief Shift offset used for address `addr` that takes into account that these are word addresses
+   *
+   * @note
+   * This has to be used together with the `operand_addr_mask` to ensure that the lowest bit is zero.
+   */
+  inline constexpr std::size_t operand_addr_word_offset = operand_addr_offset - 1;
+
+  /**
    * @brief Offset in bits of the `cflag` flags
    */
   inline constexpr std::size_t operand_cond_flag_offset = 6;
@@ -242,6 +252,14 @@ namespace yarisc::arch
    * @brief Offset in bits of the address `caddr`
    */
   inline constexpr std::size_t operand_cond_addr_offset = 9;
+
+  /**
+   * @brief Shift offset used for address `caddr` that takes into account that these are word addresses
+   *
+   * @note
+   * This has to be used together with the `operand_cond_addr_mask` to ensure that the lowest bit is zero.
+   */
+  inline constexpr std::size_t operand_cond_addr_word_offset = operand_cond_addr_offset - 1;
 
   /**
    * @brief Instruction opcodes

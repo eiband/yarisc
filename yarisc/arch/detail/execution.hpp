@@ -253,6 +253,8 @@ namespace yarisc::arch::detail
 
   struct noop_debug_execution_policy final
   {
+    static constexpr bool enabled = false;
+
     [[nodiscard]] inline bool has_panic() const noexcept
     {
       return false;
@@ -262,8 +264,6 @@ namespace yarisc::arch::detail
     {
       throw_panic(msg);
     }
-
-    static constexpr bool enabled = false;
   };
 
   struct strict_execution_policy final
@@ -296,7 +296,7 @@ namespace yarisc::arch::detail
     {
       if constexpr (strict_policy::enabled)
       {
-        if (!strict.check_address(mem, address))
+        if (!strict.check_address(mem, address)) [[unlikely]]
           return panic(address_error(address, "read"));
       }
 
@@ -309,13 +309,13 @@ namespace yarisc::arch::detail
     {
       if constexpr (strict_policy::enabled)
       {
-        if (!strict.check_address(mem, address))
+        if (!strict.check_address(mem, address)) [[unlikely]]
           return panic(address_error(address, "write"));
       }
 
       if constexpr (debug_policy::enabled)
       {
-        if (debug.data_breakpoint(address, value))
+        if (debug.data_breakpoint(address, value)) [[unlikely]]
           return breakpoint_result;
       }
 
@@ -328,7 +328,7 @@ namespace yarisc::arch::detail
     {
       if constexpr (strict_policy::enabled)
       {
-        if (!debug.has_panic())
+        if (!debug.has_panic()) [[likely]]
         {
           switch (result.second)
           {
@@ -426,18 +426,12 @@ namespace yarisc::arch::detail
 
   [[nodiscard]] inline address_t load_short_address(word_t instr) noexcept
   {
-    static_assert(sizeof(word_t) == 2);
-
-    // Adjust offset to account for word address
-    return static_cast<address_t>((instr & operand_addr_mask) >> (operand_addr_offset - 1));
+    return static_cast<address_t>((instr & operand_addr_mask) >> operand_addr_word_offset);
   }
 
-  [[nodiscard]] inline word_t load_short_cond_address(word_t instr) noexcept
+  [[nodiscard]] inline address_t load_short_cond_address(word_t instr) noexcept
   {
-    static_assert(sizeof(word_t) == 2);
-
-    // Adjust offset to account for word address
-    return static_cast<address_t>((instr & operand_cond_addr_mask) >> (operand_cond_addr_offset - 1));
+    return static_cast<address_t>((instr & operand_cond_addr_mask) >> operand_cond_addr_word_offset);
   }
 
   [[nodiscard]] inline word_t& first_operand(word_t instr, machine_registers& reg) noexcept
@@ -637,7 +631,7 @@ namespace yarisc::arch::detail
   {
     if constexpr (Policy::debug_policy::enabled)
     {
-      if (policy.debug.breakpoint(static_cast<address_t>(reg.named.ip())))
+      if (policy.debug.breakpoint(static_cast<address_t>(reg.named.ip()))) [[unlikely]]
         return breakpoint_result;
     }
 
@@ -685,7 +679,10 @@ namespace yarisc::arch::detail
       break;
     }
 
-    return policy.check(result, instr);
+    if constexpr (Policy::strict_policy::enabled)
+      return policy.check(result, instr);
+    else
+      return result.first;
   }
 
 } // namespace yarisc::arch::detail

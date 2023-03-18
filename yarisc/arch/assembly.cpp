@@ -132,20 +132,14 @@ namespace yarisc::arch
 
     std::ostream& output_short_jump_address(std::ostream& os, word_t instr)
     {
-      static_assert(sizeof(word_t) == 2);
-
-      // Adjust offset to account for word address
-      const auto address = static_cast<address_t>((instr & operand_addr_mask) >> (operand_addr_offset - 1));
+      const auto address = static_cast<address_t>((instr & operand_addr_mask) >> operand_addr_word_offset);
 
       return output_address_impl(os, address);
     }
 
     std::ostream& output_short_cond_jump_address(std::ostream& os, word_t instr)
     {
-      static_assert(sizeof(word_t) == 2);
-
-      // Adjust offset to account for word address
-      const auto address = static_cast<address_t>((instr & operand_cond_addr_mask) >> (operand_cond_addr_offset - 1));
+      const auto address = static_cast<address_t>((instr & operand_cond_addr_mask) >> operand_cond_addr_word_offset);
 
       return output_address_impl(os, address);
     }

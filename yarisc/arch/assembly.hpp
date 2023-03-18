@@ -260,18 +260,12 @@ namespace yarisc::arch
 
     [[nodiscard]] inline word_t make_immediate(short_jump_address address) noexcept
     {
-      static_assert(sizeof(word_t) == 2);
-
-      // Adjust offset to account for word address
-      return (address.get() << (operand_addr_offset - 1)) & operand_addr_mask;
+      return (address.get() << operand_addr_word_offset) & operand_addr_mask;
     }
 
     [[nodiscard]] inline word_t make_immediate(short_cond_jump_address address) noexcept
     {
-      static_assert(sizeof(word_t) == 2);
-
-      // Adjust offset to account for word address
-      return (address.get() << (operand_cond_addr_offset - 1)) & operand_cond_addr_mask;
+      return (address.get() << operand_cond_addr_word_offset) & operand_cond_addr_mask;
     }
 
     [[nodiscard]] inline word_t make_condition(jump_condition cond) noexcept
