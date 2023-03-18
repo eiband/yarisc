@@ -1,2 +1,2 @@
-# yarisc
+# YaRISC DIY processor
 Yet Another RISC
