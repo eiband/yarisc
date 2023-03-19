@@ -33,6 +33,13 @@ namespace yarisc::arch::detail
   inline constexpr execute_result halt_result{false, false};
   inline constexpr execute_result breakpoint_result{false, true};
 
+  inline execute_result update_zero_flag(machine_registers& reg, const word_t& op0, execute_result result = {}) noexcept
+  {
+    reg.status.s = (reg.status.s & ~status_register::zero_flag) | ((op0 == 0x0) ? status_register::zero_flag : 0x0);
+
+    return result;
+  }
+
   struct alu_add_op final
   {
     [[nodiscard]] double_word_t operator()(double_word_t op1, double_word_t op2, word_t) const noexcept
@@ -99,12 +106,7 @@ namespace yarisc::arch::detail
     [[nodiscard]] static execute_result execute(
       Policy&, machine_registers& reg, machine_memory&, word_t& op0, word_t op1) noexcept
     {
-      op0 = op1;
-
-      // Update the zero flag
-      reg.status.s = (reg.status.s & ~status_register::zero_flag) | ((op1 == 0x0) ? status_register::zero_flag : 0x0);
-
-      return {};
+      return update_zero_flag(reg, op0 = op1);
     }
   };
 
@@ -113,9 +115,9 @@ namespace yarisc::arch::detail
   {
     template <typename Policy>
     [[nodiscard]] static execute_result execute(
-      Policy& policy, machine_registers&, machine_memory& mem, word_t& op0, word_t op1)
+      Policy& policy, machine_registers& reg, machine_memory& mem, word_t& op0, word_t op1)
     {
-      return policy.load(mem, static_cast<address_t>(op1), op0);
+      return update_zero_flag(reg, op0, policy.load(mem, static_cast<address_t>(op1), op0));
     }
   };
 

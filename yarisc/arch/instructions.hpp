@@ -276,7 +276,7 @@ namespace yarisc::arch
     /**
      * @brief LDR instruction
      *
-     * Loads from the address `op1` or an immediate address into register `op0`.
+     * Loads from the address `op1` or an immediate address into register `op0`. Updates the zero flag.
      */
     load = 0x02,
 

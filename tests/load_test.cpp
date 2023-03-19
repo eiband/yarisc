@@ -73,11 +73,33 @@ SCENARIO("execute the LDR instruction", "[instruction]")
       {
         yarisc::test::machine expected = current;
         expected.set_r3(0xabcd);
+        expected.set_status(yarisc::test::status_c);
         expected.advance_ip();
 
         REQUIRE(current.execute_instruction());
 
-        THEN("register `r3` shall have the value `0xabcd` and the status flags shall be unchanged")
+        THEN("register `r3` shall have the value `0xabcd` and the zero flag shall be cleared")
+        {
+          CHECK(current == expected);
+        }
+      }
+    }
+
+    WHEN("`r3` has value `0xfefe`, memory at `0x0002` is `0x0`")
+    {
+      current.set_r3(0xfefe);
+      current.store(0x0002, 0x0);
+
+      AND_WHEN("the instruction is executed")
+      {
+        yarisc::test::machine expected = current;
+        expected.set_r3(0x0);
+        expected.set_status(yarisc::test::status_z);
+        expected.advance_ip();
+
+        REQUIRE(current.execute_instruction());
+
+        THEN("register `r3` shall have the value `0x0` and the zero flag shall be set")
         {
           CHECK(current == expected);
         }
