@@ -119,9 +119,9 @@ SCENARIO("execute the MOV instruction", "[instruction]")
     }
   }
 
-  GIVEN("a test machine with a short immediate `0xf` to register `r4` MOV instruction")
+  GIVEN("a test machine with a short immediate `0x7` to register `r4` MOV instruction")
   {
-    yarisc::test::machine current{yarisc::arch::assemble<opcode::move>(r4, short_immediate{0xf})};
+    yarisc::test::machine current{yarisc::arch::assemble<opcode::move>(r4, short_immediate{0x7})};
 
     WHEN("the instruction is disassembled")
     {
@@ -129,7 +129,7 @@ SCENARIO("execute the MOV instruction", "[instruction]")
 
       THEN("the result shall be the expected text")
       {
-        CHECK(text == "MOV r4, 0xf");
+        CHECK(text == "MOV r4, 7");
       }
     }
 
@@ -140,12 +140,46 @@ SCENARIO("execute the MOV instruction", "[instruction]")
       AND_WHEN("the instruction is executed")
       {
         yarisc::test::machine expected = current;
-        expected.set_r4(0xf);
+        expected.set_r4(0x7);
         expected.advance_ip();
 
         REQUIRE(current.execute_instruction());
 
-        THEN("register `r4` shall have the value `0xf`")
+        THEN("register `r4` shall have the value `0x7`")
+        {
+          CHECK(current == expected);
+        }
+      }
+    }
+  }
+
+  GIVEN("a test machine with a short immediate `0xfff8` to register `r4` MOV instruction")
+  {
+    yarisc::test::machine current{yarisc::arch::assemble<opcode::move>(r4, short_immediate{0xfff8})};
+
+    WHEN("the instruction is disassembled")
+    {
+      const std::string text = current.disassemble_instruction();
+
+      THEN("the result shall be the expected text")
+      {
+        CHECK(text == "MOV r4, 0xfff8");
+      }
+    }
+
+    WHEN("register `r4` has value `0xfefe`")
+    {
+      current.set_r4(0xfefe);
+
+      AND_WHEN("the instruction is executed")
+      {
+        yarisc::test::machine expected = current;
+        expected.set_r4(0xfff8);
+        expected.advance_ip();
+
+        REQUIRE(current.execute_instruction());
+
+        THEN("register `r4` shall have the value `0xfff8`")
         {
           CHECK(current == expected);
         }

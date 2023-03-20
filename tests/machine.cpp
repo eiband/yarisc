@@ -12,25 +12,44 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <stdexcept>
 
 namespace yarisc::test
 {
+  namespace
+  {
+    constexpr auto max_size = static_cast<machine::size_type>(std::numeric_limits<arch::address_t>::max()) + 1;
+
+  } // namespace
+
   machine::machine() = default;
 
   machine::machine(arch::word_t word)
   {
-    const auto ip = static_cast<size_type>(registers_.named.ip());
-
-    store(ip, word);
+    store_instruction(word);
   }
 
   machine::machine(arch::word_t word0, arch::word_t word1)
   {
-    const auto ip = static_cast<size_type>(registers_.named.ip());
+    store_instruction(word0, word1);
+  }
 
-    store(ip, word0);
-    store(ip + sizeof(arch::word_t), word1);
+  machine::machine(max_memory_t)
+    : memory_{initial_memory(max_size)}
+  {
+  }
+
+  machine::machine(max_memory_t, arch::word_t word)
+    : machine{max_memory}
+  {
+    store_instruction(word);
+  }
+
+  machine::machine(max_memory_t, arch::word_t word0, arch::word_t word1)
+    : machine{max_memory}
+  {
+    store_instruction(word0, word1);
   }
 
   arch::word_t machine::load(size_type off) const
@@ -84,6 +103,21 @@ namespace yarisc::test
     return result.text;
   }
 
+  void machine::store_instruction(arch::word_t word)
+  {
+    const auto ip = static_cast<size_type>(registers_.named.ip());
+
+    store(ip, word);
+  }
+
+  void machine::store_instruction(arch::word_t word0, arch::word_t word1)
+  {
+    const auto ip = static_cast<size_type>(registers_.named.ip());
+
+    store(ip, word0);
+    store(ip + sizeof(arch::word_t), word1);
+  }
+
   arch::registers machine::initial_registers()
   {
     arch::registers named{};
@@ -99,9 +133,9 @@ namespace yarisc::test
     return named;
   }
 
-  arch::memory machine::initial_memory()
+  arch::memory machine::initial_memory(size_type sz)
   {
-    arch::memory mem{128 /* bytes */};
+    arch::memory mem{sz};
 
     std::uint8_t value = 0;
     std::ranges::generate(mem, [&value]() { return static_cast<std::byte>(value++); });

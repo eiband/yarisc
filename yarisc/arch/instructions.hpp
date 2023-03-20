@@ -8,11 +8,41 @@
 
 #include <yarisc/arch/types.hpp>
 
+#include <cassert>
 #include <cstddef>
+#include <type_traits>
 
 namespace yarisc::arch
 {
   static_assert(sizeof(word_t) == 2);
+
+  namespace detail
+  {
+    [[nodiscard]] inline constexpr word_t sign_extend(word_t value, word_t sign_mask) noexcept
+    {
+      using signed_type = std::make_signed_t<word_t>;
+
+      // This function expects the high bits to be zero
+      assert((value & ~sign_mask) < sign_mask);
+
+      const auto v = static_cast<signed_type>(value);
+      const auto s = static_cast<signed_type>(sign_mask);
+
+      return static_cast<word_t>((v ^ s) - s);
+    }
+
+    static_assert(sign_extend(0b0000000000000000, 0b0000000000001000) == 0b0000000000000000);
+    static_assert(sign_extend(0b0000000000001010, 0b0000000000001000) == 0b1111111111111010);
+    static_assert(sign_extend(0b0000000000010101, 0b0000000000010000) == 0b1111111111110101);
+    static_assert(sign_extend(0b0000000000010101, 0b0000000000100000) == 0b0000000000010101);
+
+    [[nodiscard]] inline constexpr word_t unpack_signed(
+      word_t instr, word_t mask, word_t sign_mask, std::size_t offset) noexcept
+    {
+      return sign_extend(static_cast<word_t>((instr & mask) >> offset), sign_mask);
+    }
+
+  } // namespace detail
 
   /**
    * @brief Instruction opcode mask
@@ -107,6 +137,8 @@ namespace yarisc::arch
    * - `cneg == 1`: the jump is performed if `cflag & status == 0x0`
    *
    * Short jump addresses are always measured in words. Long addresses loaded from the next word are in bytes as usual.
+   *
+   * Short immediate constants and short addresses are always sign-extended to keep the decoding simple.
    */
   inline constexpr word_t operand_mask = 0b1111111111000000;
 
@@ -141,9 +173,14 @@ namespace yarisc::arch
   inline constexpr word_t operand_as_mask = 0b0010000000000000;
 
   /**
-   * @brief Mask for the `st` flag
+   * @brief Mask for the `st` field
    */
   inline constexpr word_t operand_st_mask = 0b0001111000000000;
+
+  /**
+   * @brief Sign mask for the `st` field after the shift
+   */
+  inline constexpr word_t operand_st_sign_mask = 0b0000000000001000;
 
   /**
    * @brief Bitmask for an immediate constant stored in the next word
@@ -191,6 +228,11 @@ namespace yarisc::arch
   inline constexpr word_t operand_addr_mask = 0b0111111111000000;
 
   /**
+   * @brief Sign mask for the address `addr` after the shift
+   */
+  inline constexpr word_t operand_addr_sign_mask = 0b0000001000000000;
+
+  /**
    * @brief Mask for the `aloc` flag
    */
   inline constexpr word_t operand_addr_loc_mask = 0b1000000000000000;
@@ -226,14 +268,14 @@ namespace yarisc::arch
   inline constexpr word_t operand_cond_addr_mask = 0b0011111000000000;
 
   /**
+   * @brief Sign mask for the address `caddr` after the shift
+   */
+  inline constexpr word_t operand_cond_addr_sign_mask = 0b0000000000100000;
+
+  /**
    * @brief Mask for the `cneg` flag
    */
   inline constexpr word_t operand_cond_neg_mask = 0b0100000000000000;
-
-  /**
-   * @brief Offset in bits of the address `addr`
-   */
-  inline constexpr std::size_t operand_addr_offset = 6;
 
   /**
    * @brief Shift offset used for address `addr` that takes into account that these are word addresses
@@ -241,7 +283,7 @@ namespace yarisc::arch
    * @note
    * This has to be used together with the `operand_addr_mask` to ensure that the lowest bit is zero.
    */
-  inline constexpr std::size_t operand_addr_word_offset = operand_addr_offset - 1;
+  inline constexpr std::size_t operand_addr_offset = 5;
 
   /**
    * @brief Offset in bits of the `cflag` flags
@@ -249,17 +291,12 @@ namespace yarisc::arch
   inline constexpr std::size_t operand_cond_flag_offset = 6;
 
   /**
-   * @brief Offset in bits of the address `caddr`
-   */
-  inline constexpr std::size_t operand_cond_addr_offset = 9;
-
-  /**
    * @brief Shift offset used for address `caddr` that takes into account that these are word addresses
    *
    * @note
    * This has to be used together with the `operand_cond_addr_mask` to ensure that the lowest bit is zero.
    */
-  inline constexpr std::size_t operand_cond_addr_word_offset = operand_cond_addr_offset - 1;
+  inline constexpr std::size_t operand_cond_addr_offset = 8;
 
   /**
    * @brief Instruction opcodes

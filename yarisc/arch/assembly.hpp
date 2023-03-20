@@ -112,10 +112,13 @@ namespace yarisc::arch
     /**
      * @brief Value checked immediate constant
      */
-    template <word_t Mask>
+    template <word_t Mask, word_t SignMask>
     class checked_immediate final
     {
     public:
+      static_assert(SignMask > Mask);
+      static_assert((Mask & SignMask) == 0);
+
       /**
        * @brief Constructor
        *
@@ -126,16 +129,16 @@ namespace yarisc::arch
       /**
        * @brief Constructor
        *
-       * Creates an immediate with value `imm`. Throws an exception if the value has any bits set other than those
-       * in `Mask`.
+       * Creates an immediate with value `imm`. Throws an exception if the value is not a signed value with the sign at
+       * `SignMask` and only non-sign bits of `Mask` set.
        *
        * @param imm value of the immediate constant
        */
       explicit checked_immediate(word_t imm)
         : value_{imm}
       {
-        if (value_ & ~Mask)
-          detail::throw_invalid_immediate(value_, Mask);
+        if (!check(value_))
+          detail::throw_invalid_immediate(value_, Mask | SignMask);
       }
 
       /**
@@ -149,14 +152,15 @@ namespace yarisc::arch
       /**
        * @brief Creates an immediate constant without runtime checks
        *
-       * Behavior is undefined unless `imm` has only bits of mask `Mask` set.
+       * Behavior is undefined unless `imm` is a signed value with the sign at `SignMask` and only non-sign bits of
+       * `Mask` set.
        *
        * @param imm value of the immediate constant
        * @return immediate constant with given value
        */
       [[nodiscard]] static checked_immediate unchecked(word_t imm) noexcept
       {
-        assert(!(imm & ~Mask));
+        assert(check(imm));
 
         checked_immediate result;
         result.value_ = imm;
@@ -166,6 +170,11 @@ namespace yarisc::arch
 
     private:
       word_t value_{0x0};
+
+      [[nodiscard]] static bool check(word_t value) noexcept
+      {
+        return (detail::sign_extend(value & (Mask | SignMask), SignMask) == value);
+      }
     };
 
     static_assert((sizeof(word_t) == 2), "Invalid address masks");
@@ -173,17 +182,17 @@ namespace yarisc::arch
     /**
      * @brief Short immediate constant that can be stored in the instruction word
      */
-    using short_immediate = checked_immediate<0xf>;
+    using short_immediate = checked_immediate<0x7, 0x8>;
 
     /**
      * @brief Short immediate jump address that can be stored in the instruction word
      */
-    using short_jump_address = checked_immediate<0x03fe>;
+    using short_jump_address = checked_immediate<0x01fe, 0x0200>;
 
     /**
      * @brief Short immediate conditional jump address that can be stored in the instruction word
      */
-    using short_cond_jump_address = checked_immediate<0x3e>;
+    using short_cond_jump_address = checked_immediate<0x1e, 0x20>;
 
   } // namespace assembly
 
@@ -260,12 +269,12 @@ namespace yarisc::arch
 
     [[nodiscard]] inline word_t make_immediate(short_jump_address address) noexcept
     {
-      return (address.get() << operand_addr_word_offset) & operand_addr_mask;
+      return (address.get() << operand_addr_offset) & operand_addr_mask;
     }
 
     [[nodiscard]] inline word_t make_immediate(short_cond_jump_address address) noexcept
     {
-      return (address.get() << operand_cond_addr_word_offset) & operand_cond_addr_mask;
+      return (address.get() << operand_cond_addr_offset) & operand_cond_addr_mask;
     }
 
     [[nodiscard]] inline word_t make_condition(jump_condition cond) noexcept

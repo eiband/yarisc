@@ -49,9 +49,9 @@ SCENARIO("execute the STR instruction", "[instruction]")
     }
   }
 
-  GIVEN("a test machine with a STR instruction that stores the value of `r3` to the short immediate address `0xe`")
+  GIVEN("a test machine with a STR instruction that stores the value of `r3` to the short immediate address `0x6`")
   {
-    yarisc::test::machine current{yarisc::arch::assemble<opcode::store>(r3, short_immediate{0xe})};
+    yarisc::test::machine current{yarisc::arch::assemble<opcode::store>(r3, short_immediate{0x6})};
 
     WHEN("the instruction is disassembled")
     {
@@ -59,25 +59,62 @@ SCENARIO("execute the STR instruction", "[instruction]")
 
       THEN("the result shall be the expected text")
       {
-        CHECK(text == "STR r3, 0xe");
+        CHECK(text == "STR r3, 6");
       }
     }
 
-    WHEN("register `r3` has value `0xabcd`, memory at `0x000e` is `0xfefe`, and the status flags set")
+    WHEN("register `r3` has value `0xabcd`, memory at `0x0006` is `0xfefe`, and the status flags set")
     {
       current.set_r3(0xabcd);
       current.set_status(yarisc::test::status_zc);
-      current.store(0x000e, 0xfefe);
+      current.store(0x0006, 0xfefe);
 
       AND_WHEN("the instruction is executed")
       {
         yarisc::test::machine expected = current;
-        expected.store(0x000e, 0xabcd);
+        expected.store(0x0006, 0xabcd);
         expected.advance_ip();
 
         REQUIRE(current.execute_instruction());
 
-        THEN("the value `0xabcd` shall have been written at address `0x000e` and the status flags shall be unchanged")
+        THEN("the value `0xabcd` shall have been written at address `0x0006` and the status flags shall be unchanged")
+        {
+          CHECK(current == expected);
+        }
+      }
+    }
+  }
+
+  GIVEN("a test machine with a STR instruction that stores the value of `r3` to the short immediate address `0xfff8`")
+  {
+    yarisc::test::machine current{
+      yarisc::test::max_memory, yarisc::arch::assemble<opcode::store>(r3, short_immediate{0xfff8})};
+
+    WHEN("the instruction is disassembled")
+    {
+      const std::string text = current.disassemble_instruction();
+
+      THEN("the result shall be the expected text")
+      {
+        CHECK(text == "STR r3, 0xfff8");
+      }
+    }
+
+    WHEN("register `r3` has value `0xabcd`, memory at `0xfff8` is `0xfefe`, and the status flags set")
+    {
+      current.set_r3(0xabcd);
+      current.set_status(yarisc::test::status_zc);
+      current.store(0xfff8, 0xfefe);
+
+      AND_WHEN("the instruction is executed")
+      {
+        yarisc::test::machine expected = current;
+        expected.store(0xfff8, 0xabcd);
+        expected.advance_ip();
+
+        REQUIRE(current.execute_instruction());
+
+        THEN("the value `0xabcd` shall have been written at address `0xfff8` and the status flags shall be unchanged")
         {
           CHECK(current == expected);
         }

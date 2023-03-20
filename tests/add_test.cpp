@@ -172,9 +172,9 @@ SCENARIO("execute the ADD instruction", "[instruction]")
     }
   }
 
-  GIVEN("a test machine with an ADD instruction using a left-hand short immediate `0xe` with register `r5`")
+  GIVEN("a test machine with an ADD instruction using a left-hand short immediate `0x6` with register `r5`")
   {
-    yarisc::test::machine current{yarisc::arch::assemble<opcode::add>(r5, short_immediate{0xe}, accumulator)};
+    yarisc::test::machine current{yarisc::arch::assemble<opcode::add>(r5, short_immediate{0x6}, accumulator)};
 
     WHEN("the instruction is disassembled")
     {
@@ -182,7 +182,7 @@ SCENARIO("execute the ADD instruction", "[instruction]")
 
       THEN("the result shall be the expected text")
       {
-        CHECK(text == "ADD r5, 0xe, r5");
+        CHECK(text == "ADD r5, 6, r5");
       }
     }
 
@@ -193,12 +193,12 @@ SCENARIO("execute the ADD instruction", "[instruction]")
       AND_WHEN("the instruction is executed")
       {
         yarisc::test::machine expected = current;
-        expected.set_r5(0x100f);
+        expected.set_r5(0x1007);
         expected.advance_ip();
 
         REQUIRE(current.execute_instruction());
 
-        THEN("register `r5` shall have the value `0x100f`")
+        THEN("register `r5` shall have the value `0x1007`")
         {
           CHECK(current == expected);
         }
@@ -206,9 +206,9 @@ SCENARIO("execute the ADD instruction", "[instruction]")
     }
   }
 
-  GIVEN("a test machine with an ADD instruction using a right-hand short immediate `0xc` with register `r4`")
+  GIVEN("a test machine with an ADD instruction using a left-hand short immediate `0xfff9` with register `r5`")
   {
-    yarisc::test::machine current{yarisc::arch::assemble<opcode::add>(r4, accumulator, short_immediate{0xc})};
+    yarisc::test::machine current{yarisc::arch::assemble<opcode::add>(r5, short_immediate{0xfff9}, accumulator)};
 
     WHEN("the instruction is disassembled")
     {
@@ -216,13 +216,48 @@ SCENARIO("execute the ADD instruction", "[instruction]")
 
       THEN("the result shall be the expected text")
       {
-        CHECK(text == "ADD r4, r4, 0xc");
+        CHECK(text == "ADD r5, 0xfff9, r5");
       }
     }
 
-    WHEN("register `r4` has value `0xfff6` and the zero flag set")
+    WHEN("register `r5` has value `0x1001`")
     {
-      current.set_r4(0xfff6);
+      current.set_r5(0x1001);
+
+      AND_WHEN("the instruction is executed")
+      {
+        yarisc::test::machine expected = current;
+        expected.set_r5(0x0ffa);
+        expected.set_status(yarisc::test::status_c);
+        expected.advance_ip();
+
+        REQUIRE(current.execute_instruction());
+
+        THEN("register `r5` shall have the value `0x0ffa` and the carry flag shall be set")
+        {
+          CHECK(current == expected);
+        }
+      }
+    }
+  }
+
+  GIVEN("a test machine with an ADD instruction using a right-hand short immediate `0x5` with register `r4`")
+  {
+    yarisc::test::machine current{yarisc::arch::assemble<opcode::add>(r4, accumulator, short_immediate{0x5})};
+
+    WHEN("the instruction is disassembled")
+    {
+      const std::string text = current.disassemble_instruction();
+
+      THEN("the result shall be the expected text")
+      {
+        CHECK(text == "ADD r4, r4, 5");
+      }
+    }
+
+    WHEN("register `r4` has value `0xfffd` and the zero flag set")
+    {
+      current.set_r4(0xfffd);
       current.set_status(yarisc::test::status_z);
 
       AND_WHEN("the instruction is executed")
@@ -506,10 +541,10 @@ SCENARIO("execute the ADC instruction", "[instruction]")
     }
   }
 
-  GIVEN("a test machine with an ADC instruction using a left-hand short immediate `0xe` with register `r5`")
+  GIVEN("a test machine with an ADC instruction using a left-hand short immediate `0x6` with register `r5`")
   {
     yarisc::test::machine current{
-      yarisc::arch::assemble<opcode::add_with_carry>(r5, short_immediate{0xe}, accumulator)};
+      yarisc::arch::assemble<opcode::add_with_carry>(r5, short_immediate{0x6}, accumulator)};
 
     WHEN("the instruction is disassembled")
     {
@@ -517,7 +552,7 @@ SCENARIO("execute the ADC instruction", "[instruction]")
 
       THEN("the result shall be the expected text")
       {
-        CHECK(text == "ADC r5, 0xe, r5");
+        CHECK(text == "ADC r5, 6, r5");
       }
     }
 
@@ -529,13 +564,13 @@ SCENARIO("execute the ADC instruction", "[instruction]")
       AND_WHEN("the instruction is executed")
       {
         yarisc::test::machine expected = current;
-        expected.set_r5(0x1010);
+        expected.set_r5(0x1008);
         expected.clear_status();
         expected.advance_ip();
 
         REQUIRE(current.execute_instruction());
 
-        THEN("register `r5` shall have the value `0x1010` and the zero and carry flags shall be reset")
+        THEN("register `r5` shall have the value `0x1008` and the zero and carry flags shall be reset")
         {
           CHECK(current == expected);
         }
@@ -543,10 +578,10 @@ SCENARIO("execute the ADC instruction", "[instruction]")
     }
   }
 
-  GIVEN("a test machine with an ADC instruction using a right-hand short immediate `0xc` with register `r4`")
+  GIVEN("a test machine with an ADC instruction using a right-hand short immediate `0x5` with register `r4`")
   {
     yarisc::test::machine current{
-      yarisc::arch::assemble<opcode::add_with_carry>(r4, accumulator, short_immediate{0xc})};
+      yarisc::arch::assemble<opcode::add_with_carry>(r4, accumulator, short_immediate{0x5})};
 
     WHEN("the instruction is disassembled")
     {
@@ -554,13 +589,13 @@ SCENARIO("execute the ADC instruction", "[instruction]")
 
       THEN("the result shall be the expected text")
       {
-        CHECK(text == "ADC r4, r4, 0xc");
+        CHECK(text == "ADC r4, r4, 5");
       }
     }
 
-    WHEN("register `r4` has value `0xfff6` and the zero flag set")
+    WHEN("register `r4` has value `0xfffd` and the zero flag set")
     {
-      current.set_r4(0xfff6);
+      current.set_r4(0xfffd);
       current.set_status(yarisc::test::status_z);
 
       AND_WHEN("the instruction is executed")

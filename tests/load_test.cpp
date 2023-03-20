@@ -84,11 +84,49 @@ SCENARIO("execute the LDR instruction", "[instruction]")
         }
       }
     }
+  }
 
-    WHEN("`r3` has value `0xfefe`, memory at `0x0002` is `0x0`")
+  GIVEN("a test machine with an LDR instruction that loads from the short immediate address `0xfffe` into `r3`")
+  {
+    yarisc::test::machine current{
+      yarisc::test::max_memory, yarisc::arch::assemble<opcode::load>(r3, short_immediate{0xfffe})};
+
+    WHEN("the instruction is disassembled")
+    {
+      const std::string text = current.disassemble_instruction();
+
+      THEN("the result shall be the expected text")
+      {
+        CHECK(text == "LDR r3, 0xfffe");
+      }
+    }
+
+    WHEN("`r3` has value `0xfefe`, memory at `0xfffe` is `0xabcd`, and the status flags set")
     {
       current.set_r3(0xfefe);
-      current.store(0x0002, 0x0);
+      current.set_status(yarisc::test::status_zc);
+      current.store(0xfffe, 0xabcd);
+
+      AND_WHEN("the instruction is executed")
+      {
+        yarisc::test::machine expected = current;
+        expected.set_r3(0xabcd);
+        expected.set_status(yarisc::test::status_c);
+        expected.advance_ip();
+
+        REQUIRE(current.execute_instruction());
+
+        THEN("register `r3` shall have the value `0xabcd` and the zero flag shall be cleared")
+        {
+          CHECK(current == expected);
+        }
+      }
+    }
+
+    WHEN("`r3` has value `0xfefe`, memory at `0xfffe` is `0x0`")
+    {
+      current.set_r3(0xfefe);
+      current.store(0xfffe, 0x0);
 
       AND_WHEN("the instruction is executed")
       {

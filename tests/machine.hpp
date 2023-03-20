@@ -17,6 +17,21 @@
 
 namespace yarisc::test
 {
+  /**
+   * @brief Request a test machine with maximum memory
+   */
+  struct max_memory_t
+  {
+    explicit max_memory_t() = default;
+  };
+
+  /**
+   * @brief Request a test machine with maximum memory
+   *
+   * By default the test machine has less memory, because most tests just need a small window.
+   */
+  inline constexpr max_memory_t max_memory{};
+
   inline constexpr arch::word_t status_c = arch::status_register::carry_flag;
   inline constexpr arch::word_t status_z = arch::status_register::zero_flag;
   inline constexpr arch::word_t status_zc = arch::status_register::zero_flag | arch::status_register::carry_flag;
@@ -33,6 +48,10 @@ namespace yarisc::test
 
     explicit machine(arch::word_t word);
     machine(arch::word_t word0, arch::word_t word1);
+
+    explicit machine(max_memory_t);
+    machine(max_memory_t, arch::word_t word);
+    machine(max_memory_t, arch::word_t word0, arch::word_t word1);
 
     [[nodiscard]] arch::word_t load(size_type off) const;
 
@@ -110,8 +129,11 @@ namespace yarisc::test
 
     std::shared_ptr<arch::debugger> debugger_{std::make_shared<arch::debugger>()};
 
+    void store_instruction(arch::word_t word);
+    void store_instruction(arch::word_t word0, arch::word_t word1);
+
     [[nodiscard]] static arch::registers initial_registers();
-    [[nodiscard]] static arch::memory initial_memory();
+    [[nodiscard]] static arch::memory initial_memory(size_type sz = 128 /* bytes */);
   };
 
 } // namespace yarisc::test

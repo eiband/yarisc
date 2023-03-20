@@ -423,17 +423,18 @@ namespace yarisc::arch::detail
 
   [[nodiscard]] inline word_t load_short_immediate(word_t instr) noexcept
   {
-    return static_cast<word_t>((instr & operand_st_mask) >> operand_st_offset);
+    return unpack_signed(instr, operand_st_mask, operand_st_sign_mask, operand_st_offset);
   }
 
   [[nodiscard]] inline address_t load_short_address(word_t instr) noexcept
   {
-    return static_cast<address_t>((instr & operand_addr_mask) >> operand_addr_word_offset);
+    return static_cast<address_t>(unpack_signed(instr, operand_addr_mask, operand_addr_sign_mask, operand_addr_offset));
   }
 
   [[nodiscard]] inline address_t load_short_cond_address(word_t instr) noexcept
   {
-    return static_cast<address_t>((instr & operand_cond_addr_mask) >> operand_cond_addr_word_offset);
+    return static_cast<address_t>(
+      unpack_signed(instr, operand_cond_addr_mask, operand_cond_addr_sign_mask, operand_cond_addr_offset));
   }
 
   [[nodiscard]] inline word_t& first_operand(word_t instr, machine_registers& reg) noexcept

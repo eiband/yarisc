@@ -118,7 +118,7 @@ namespace yarisc::arch
 
     std::ostream& output_short_immediate(std::ostream& os, word_t instr)
     {
-      const auto imm = static_cast<word_t>((instr & operand_st_mask) >> operand_st_offset);
+      const auto imm = detail::unpack_signed(instr, operand_st_mask, operand_st_sign_mask, operand_st_offset);
 
       return output_immediate_impl(os, imm);
     }
@@ -132,14 +132,16 @@ namespace yarisc::arch
 
     std::ostream& output_short_jump_address(std::ostream& os, word_t instr)
     {
-      const auto address = static_cast<address_t>((instr & operand_addr_mask) >> operand_addr_word_offset);
+      const auto address = static_cast<address_t>(
+        detail::unpack_signed(instr, operand_addr_mask, operand_addr_sign_mask, operand_addr_offset));
 
       return output_address_impl(os, address);
     }
 
     std::ostream& output_short_cond_jump_address(std::ostream& os, word_t instr)
     {
-      const auto address = static_cast<address_t>((instr & operand_cond_addr_mask) >> operand_cond_addr_word_offset);
+      const auto address = static_cast<address_t>(
+        detail::unpack_signed(instr, operand_cond_addr_mask, operand_cond_addr_sign_mask, operand_cond_addr_offset));
 
       return output_address_impl(os, address);
     }
@@ -351,7 +353,7 @@ namespace yarisc::arch
       using namespace std::string_view_literals;
 
       std::ostringstream oss;
-      output_hex(oss << "short immediate constant "sv, imm) << "too large"sv;
+      output_hex(oss << "short immediate constant "sv, imm) << " too large"sv;
       output_hex(oss << " (mask: "sv, mask) << ")"sv;
 
       throw std::out_of_range{std::move(oss).str()};

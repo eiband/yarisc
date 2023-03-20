@@ -17,11 +17,11 @@ namespace yarisc::arch
   namespace
   {
     static_assert(std::is_unsigned_v<address_t>);
-    static_assert(std::is_unsigned_v<std::size_t>);
+    static_assert(std::is_unsigned_v<memory::size_type>);
 
-    static_assert(sizeof(address_t) < sizeof(std::size_t));
+    static_assert(sizeof(address_t) < sizeof(memory::size_type));
 
-    constexpr inline std::size_t max_size = static_cast<std::size_t>(std::numeric_limits<address_t>::max()) + 1;
+    constexpr auto max_size  = static_cast<memory::size_type>(std::numeric_limits<address_t>::max()) + 1;
 
     static_assert(detail::is_aligned(max_size));
 
