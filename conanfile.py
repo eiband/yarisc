@@ -19,11 +19,11 @@ class YetAnotherRISCRecipe(ConanFile):
             del self.options.fPIC
 
     def layout(self):
-        cmake_layout(self);
+        cmake_layout(self)
 
     def requirements(self):
         pass
 
     def build_requirements(self):
-        self.test_requires('catch2/3.3.2')
-        self.tool_requires('cmake/3.25.3')
+        self.test_requires('catch2/3.11.0')
+        self.tool_requires('cmake/4.2.0')
