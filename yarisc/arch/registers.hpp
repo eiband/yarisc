@@ -21,7 +21,8 @@ namespace yarisc::arch
    *
    * The registers `r3`, `r4`, and `r5` are volatile. The latter `r4` and `r5` are used when a subroutine is called. In
    * the standard calling convention, `r4` points to the result storage. `r5` contains the return address to which the
-   * subroutine needs to return. Other than that, `r4` and `r5` can also be used as scratch registers just liek `r3`.
+   * subroutine needs to return. `r3` may contain the frame pointer. Other than that, `r3`, `r4`, and `r5` can also be
+   * used as scratch registers.
    *
    * The register `r6` is the stack pointer. The stack stack grows downwards. `r6` can be used as scratch register if
    * the whole program doesn't use a stack.
@@ -51,7 +52,7 @@ namespace yarisc::arch
 
     [[nodiscard]] word_t r3() const noexcept
     {
-      return r[3]; // r3: scratch purpose
+      return r[3]; // r3: frame pointer
     }
 
     [[nodiscard]] word_t r4() const noexcept

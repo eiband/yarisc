@@ -49,7 +49,7 @@ namespace yarisc::arch::detail
       os << "r0: "sv << register_bgclr<0>(ctx) << hex_word(proj(&registers::r0, named), ctx) << sep // general purpose
          << "r1: "sv << register_bgclr<1>(ctx) << hex_word(proj(&registers::r1, named), ctx) << sep // general purpose
          << "r2: "sv << register_bgclr<2>(ctx) << hex_word(proj(&registers::r2, named), ctx) << sep // general purpose
-         << "r3: "sv << register_bgclr<2>(ctx) << hex_word(proj(&registers::r3, named), ctx) << sep // scratch purpose
+         << "r3: "sv << register_bgclr<2>(ctx) << hex_word(proj(&registers::r3, named), ctx) << sep // frame pointer
          << "r4: "sv << register_bgclr<4>(ctx) << hex_word(proj(&registers::r4, named), ctx) << sep // result pointer
          << "r5: "sv << register_bgclr<5>(ctx) << hex_word(proj(&registers::r5, named), ctx)        // return pointer
          << '\n';
