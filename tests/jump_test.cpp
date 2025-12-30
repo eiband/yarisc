@@ -13,7 +13,7 @@ SCENARIO("execute the JMP instruction", "[instruction]")
 {
   using namespace yarisc::arch::assembly;
 
-  GIVEN("a test machine with a JMP to absolut short address `0x01fc` instruction")
+  GIVEN("a test machine with a JMP to absolute short address `0x01fc` instruction")
   {
     yarisc::test::machine current{yarisc::arch::assemble<opcode::jump>(short_jump_address{0x01fc})};
 
@@ -95,7 +95,7 @@ SCENARIO("execute the JMP instruction", "[instruction]")
     }
   }
 
-  GIVEN("a test machine with a JMP to absolut short address `0xffe0` instruction")
+  GIVEN("a test machine with a JMP to absolute short address `0xffe0` instruction")
   {
     yarisc::test::machine current{yarisc::arch::assemble<opcode::jump>(short_jump_address{0xffe0})};
 
@@ -123,7 +123,7 @@ SCENARIO("execute the JMP instruction", "[instruction]")
     }
   }
 
-  GIVEN("a test machine with a JMP to absolut address `0x6124` instruction")
+  GIVEN("a test machine with a JMP to absolute address `0x6124` instruction")
   {
     yarisc::test::machine current{yarisc::arch::assemble<opcode::jump>(immediate), 0x6124};
 
@@ -210,7 +210,7 @@ SCENARIO("execute the JMC instruction", "[instruction]")
 {
   using namespace yarisc::arch::assembly;
 
-  GIVEN("a test machine with a JMC to absolut short address `0x1a` instruction")
+  GIVEN("a test machine with a JMC to absolute short address `0x1a` instruction")
   {
     yarisc::test::machine current{yarisc::arch::assemble<opcode::cond_jump>(jc, short_cond_jump_address{0x1a})};
 
@@ -292,7 +292,7 @@ SCENARIO("execute the JMC instruction", "[instruction]")
     }
   }
 
-  GIVEN("a test machine with a JMC to absolut short address `0xffe0` instruction")
+  GIVEN("a test machine with a JMC to absolute short address `0xffe0` instruction")
   {
     yarisc::test::machine current{yarisc::arch::assemble<opcode::cond_jump>(jc, short_cond_jump_address{0xffe0})};
 
@@ -325,7 +325,7 @@ SCENARIO("execute the JMC instruction", "[instruction]")
     }
   }
 
-  GIVEN("a test machine with a JMC to absolut address `0x1ff0` instruction")
+  GIVEN("a test machine with a JMC to absolute address `0x1ff0` instruction")
   {
     yarisc::test::machine current{yarisc::arch::assemble<opcode::cond_jump>(jc, immediate), 0x1ff0};
 
@@ -412,7 +412,7 @@ SCENARIO("execute the JNC instruction", "[instruction]")
 {
   using namespace yarisc::arch::assembly;
 
-  GIVEN("a test machine with a JNC to absolut short address `0x1a` instruction")
+  GIVEN("a test machine with a JNC to absolute short address `0x1a` instruction")
   {
     yarisc::test::machine current{yarisc::arch::assemble<opcode::cond_jump>(jnc, short_cond_jump_address{0x1a})};
 
@@ -494,7 +494,7 @@ SCENARIO("execute the JNC instruction", "[instruction]")
     }
   }
 
-  GIVEN("a test machine with a JNC to absolut short address `0xffe0` instruction")
+  GIVEN("a test machine with a JNC to absolute short address `0xffe0` instruction")
   {
     yarisc::test::machine current{yarisc::arch::assemble<opcode::cond_jump>(jnc, short_cond_jump_address{0xffe0})};
 
@@ -527,7 +527,7 @@ SCENARIO("execute the JNC instruction", "[instruction]")
     }
   }
 
-  GIVEN("a test machine with a JNC to absolut address `0x1ff0` instruction")
+  GIVEN("a test machine with a JNC to absolute address `0x1ff0` instruction")
   {
     yarisc::test::machine current{yarisc::arch::assemble<opcode::cond_jump>(jnc, immediate), 0x1ff0};
 
@@ -614,7 +614,7 @@ SCENARIO("execute the JMZ instruction", "[instruction]")
 {
   using namespace yarisc::arch::assembly;
 
-  GIVEN("a test machine with a JMZ to absolut short address `0x1a` instruction")
+  GIVEN("a test machine with a JMZ to absolute short address `0x1a` instruction")
   {
     yarisc::test::machine current{yarisc::arch::assemble<opcode::cond_jump>(jz, short_cond_jump_address{0x1a})};
 
@@ -696,7 +696,7 @@ SCENARIO("execute the JMZ instruction", "[instruction]")
     }
   }
 
-  GIVEN("a test machine with a JMZ to absolut short address `0xffe0` instruction")
+  GIVEN("a test machine with a JMZ to absolute short address `0xffe0` instruction")
   {
     yarisc::test::machine current{yarisc::arch::assemble<opcode::cond_jump>(jz, short_cond_jump_address{0xffe0})};
 
@@ -729,7 +729,7 @@ SCENARIO("execute the JMZ instruction", "[instruction]")
     }
   }
 
-  GIVEN("a test machine with a JMZ to absolut address `0x1ff0` instruction")
+  GIVEN("a test machine with a JMZ to absolute address `0x1ff0` instruction")
   {
     yarisc::test::machine current{yarisc::arch::assemble<opcode::cond_jump>(jz, immediate), 0x1ff0};
 
@@ -816,7 +816,7 @@ SCENARIO("execute the JNZ instruction", "[instruction]")
 {
   using namespace yarisc::arch::assembly;
 
-  GIVEN("a test machine with a JNZ to absolut short address `0x1a` instruction")
+  GIVEN("a test machine with a JNZ to absolute short address `0x1a` instruction")
   {
     yarisc::test::machine current{yarisc::arch::assemble<opcode::cond_jump>(jnz, short_cond_jump_address{0x1a})};
 
@@ -898,7 +898,7 @@ SCENARIO("execute the JNZ instruction", "[instruction]")
     }
   }
 
-  GIVEN("a test machine with a JNZ to absolut short address `0xffe0` instruction")
+  GIVEN("a test machine with a JNZ to absolute short address `0xffe0` instruction")
   {
     yarisc::test::machine current{yarisc::arch::assemble<opcode::cond_jump>(jnz, short_cond_jump_address{0xffe0})};
 
@@ -931,7 +931,7 @@ SCENARIO("execute the JNZ instruction", "[instruction]")
     }
   }
 
-  GIVEN("a test machine with a JNZ to absolut address `0x1ff0` instruction")
+  GIVEN("a test machine with a JNZ to absolute address `0x1ff0` instruction")
   {
     yarisc::test::machine current{yarisc::arch::assemble<opcode::cond_jump>(jnz, immediate), 0x1ff0};
 
