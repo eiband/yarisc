@@ -16,16 +16,14 @@ namespace yarisc::arch
   /**
    * @brief Named registers of the machine
    *
-   * The first three registers `r0`, `r1`, and `r2` are general purpose registers. They are also non-volatile in the
-   * standard calling convention, i.e. the subroutine needs to preserve their value.
+   * The first three registers `r0`, `r1`, and `r2` are volatile. `r0` and `r1` are used for arguments and the return
+   * value when a subroutine is called. `r5` may contain the frame pointer. Other than that, `r0`, `r1`, and `r2` can
+   * also be used as scratch registers.
    *
-   * The registers `r3`, `r4`, and `r5` are volatile. The latter `r4` and `r5` are used when a subroutine is called. In
-   * the standard calling convention, `r4` points to the result storage. `r5` contains the return address to which the
-   * subroutine needs to return. `r3` may contain the frame pointer. Other than that, `r3`, `r4`, and `r5` can also be
-   * used as scratch registers.
+   * The registers `r3`, `r4`, and `r5` are general purpose registers. They are also non-volatile in the calling
+   * convention, i.e. the callee needs to preserve their value.
    *
-   * The register `r6` is the stack pointer. The stack stack grows downwards. `r6` can be used as scratch register if
-   * the whole program doesn't use a stack.
+   * The register `r6` is the stack pointer. The stack stack grows downwards.
    *
    * The register `r7` is the instruction pointer. It points to the next instruction to be executed.
    */
@@ -52,17 +50,17 @@ namespace yarisc::arch
 
     [[nodiscard]] word_t r3() const noexcept
     {
-      return r[3]; // r3: frame pointer
+      return r[3]; // r3: general purpose
     }
 
     [[nodiscard]] word_t r4() const noexcept
     {
-      return r[4]; // r4: result pointer
+      return r[4]; // r4: general purpose
     }
 
     [[nodiscard]] word_t r5() const noexcept
     {
-      return r[5]; // r5: return pointer
+      return r[5]; // r5: frame pointer
     }
 
     [[nodiscard]] word_t sp() const noexcept
