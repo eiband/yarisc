@@ -33,13 +33,6 @@ namespace yarisc::arch::detail
   inline constexpr execute_result halt_result{false, false};
   inline constexpr execute_result breakpoint_result{false, true};
 
-  inline execute_result update_zero_flag(machine_registers& reg, const word_t& op0, execute_result result = {}) noexcept
-  {
-    reg.status.s = (reg.status.s & ~status_register::zero_flag) | ((op0 == 0x0) ? status_register::zero_flag : 0x0);
-
-    return result;
-  }
-
   struct alu_add_op final
   {
     [[nodiscard]] double_word_t operator()(double_word_t op1, double_word_t op2, word_t) const noexcept
@@ -104,9 +97,11 @@ namespace yarisc::arch::detail
   {
     template <typename Policy>
     [[nodiscard]] static execute_result execute(
-      Policy&, machine_registers& reg, machine_memory&, word_t& op0, word_t op1) noexcept
+      Policy&, machine_registers&, machine_memory&, word_t& op0, word_t op1) noexcept
     {
-      return update_zero_flag(reg, op0 = op1);
+      op0 = op1;
+
+      return {};
     }
   };
 
@@ -115,9 +110,20 @@ namespace yarisc::arch::detail
   {
     template <typename Policy>
     [[nodiscard]] static execute_result execute(
-      Policy& policy, machine_registers& reg, machine_memory& mem, word_t& op0, word_t op1)
+      Policy& policy, machine_registers&, machine_memory& mem, word_t& op0, word_t op1)
     {
-      return update_zero_flag(reg, op0, policy.load(mem, static_cast<address_t>(op1), op0));
+      return policy.load(mem, static_cast<address_t>(op1), op0);
+    }
+  };
+
+  template <>
+  struct exec_op<opcode::load_indexed>
+  {
+    template <typename Policy>
+    [[nodiscard]] static execute_result execute(
+      Policy& policy, machine_registers&, machine_memory& mem, word_t& op0, word_t op1, word_t op2)
+    {
+      return policy.load(mem, static_cast<address_t>(op1 + op2), op0);
     }
   };
 
@@ -129,6 +135,17 @@ namespace yarisc::arch::detail
       Policy& policy, machine_registers&, machine_memory& mem, word_t& op0, word_t op1)
     {
       return policy.store(mem, static_cast<address_t>(op1), op0);
+    }
+  };
+
+  template <>
+  struct exec_op<opcode::store_indexed>
+  {
+    template <typename Policy>
+    [[nodiscard]] static execute_result execute(
+      Policy& policy, machine_registers&, machine_memory& mem, word_t& op0, word_t op1, word_t op2)
+    {
+      return policy.store(mem, static_cast<address_t>(op1 + op2), op0);
     }
   };
 
@@ -154,7 +171,7 @@ namespace yarisc::arch::detail
     {
       const auto cond = static_cast<bool>(reg.status.s & flags);
 
-      if (!cond != !negate)
+      if (cond != negate)
         reg.named.set_ip(static_cast<word_t>(address));
 
       return {};
@@ -461,20 +478,30 @@ namespace yarisc::arch::detail
              : second_reg_operand(instr, reg);
   }
 
-  template <typename Policy>
+  template <bool MemoryAccess, typename Policy>
   [[nodiscard]] std::pair<word_t, word_t> second_third_operands(
     Policy& policy, word_t instr, machine_registers& reg, const machine_memory& mem, word_t op0, execute_result& result)
   {
     if (instr & operand_sel_mask)
     {
-      const auto operands =
-        (instr & operand_loc_mask)
-          ? std::array<word_t, 2>{{load_instruction(policy, reg, mem, result), second_reg_operand(instr, reg)}}
-          : std::array<word_t, 2>{{load_short_immediate(instr), op0}};
-
       const auto as = static_cast<unsigned int>((instr & operand_as_mask) >> operand_as_offset);
 
-      return {operands[as], operands[static_cast<unsigned int>(1 - as)]};
+      if constexpr (MemoryAccess)
+      {
+        // Special case for loads and stores
+        return (instr & operand_loc_mask)
+                 ? std::pair{second_reg_operand(instr, reg), load_instruction(policy, reg, mem, result)}
+                 : std::pair{reg.named.r[as + 5], load_short_immediate(instr)};
+      }
+      else
+      {
+        const auto operands =
+          (instr & operand_loc_mask)
+            ? std::array<word_t, 2>{{load_instruction(policy, reg, mem, result), second_reg_operand(instr, reg)}}
+            : std::array<word_t, 2>{{load_short_immediate(instr), op0}};
+
+        return {operands[as], operands[static_cast<unsigned int>(1 - as)]};
+      }
     }
     else
     {
@@ -498,11 +525,7 @@ namespace yarisc::arch::detail
                                            : load_short_cond_address(instr);
   }
 
-  template <optype Type>
-  struct execution_traits;
-
-  template <>
-  struct execution_traits<optype::basic>
+  struct execution_traits_basic
   {
     template <opcode Code, typename Policy>
     [[nodiscard]] static execute_result execute(
@@ -512,8 +535,7 @@ namespace yarisc::arch::detail
     }
   };
 
-  template <>
-  struct execution_traits<optype::op0>
+  struct execution_traits_op0
   {
     template <opcode Code, typename Policy>
     [[nodiscard]] static execute_result execute(
@@ -525,8 +547,7 @@ namespace yarisc::arch::detail
     }
   };
 
-  template <>
-  struct execution_traits<optype::op0_op1>
+  struct execution_traits_op0_op1
   {
     template <opcode Code, typename Policy>
     [[nodiscard]] static execute_result execute(
@@ -547,8 +568,8 @@ namespace yarisc::arch::detail
     }
   };
 
-  template <>
-  struct execution_traits<optype::op0_op1_op2>
+  template <bool MemoryAccess>
+  struct execution_traits_op0_op1_op2
   {
     template <opcode Code, typename Policy>
     [[nodiscard]] static execute_result execute(
@@ -557,7 +578,7 @@ namespace yarisc::arch::detail
       execute_result result{};
 
       word_t& op0 = first_operand(instr, reg);
-      const auto [op1, op2] = second_third_operands(policy, instr, reg, mem, op0, result);
+      const auto [op1, op2] = second_third_operands<MemoryAccess>(policy, instr, reg, mem, op0, result);
 
       if constexpr (Policy::debug_policy::enabled)
       {
@@ -569,8 +590,7 @@ namespace yarisc::arch::detail
     }
   };
 
-  template <>
-  struct execution_traits<optype::jump>
+  struct execution_traits_jump
   {
     template <opcode Code, typename Policy>
     [[nodiscard]] static execute_result execute(
@@ -590,8 +610,7 @@ namespace yarisc::arch::detail
     }
   };
 
-  template <>
-  struct execution_traits<optype::cond_jump>
+  struct execution_traits_cond_jump
   {
     template <opcode Code, typename Policy>
     [[nodiscard]] static execute_result execute(
@@ -614,12 +633,45 @@ namespace yarisc::arch::detail
     }
   };
 
-  template <opcode Code, typename Policy>
+  template <optype Type, bool MemoryAccess = false>
+  struct execution_traits;
+
+  template <>
+  struct execution_traits<optype::basic> : execution_traits_basic
+  {
+  };
+
+  template <>
+  struct execution_traits<optype::op0> : execution_traits_op0
+  {
+  };
+
+  template <bool MemoryAccess>
+  struct execution_traits<optype::op0_op1, MemoryAccess> : execution_traits_op0_op1
+  {
+  };
+
+  template <bool MemoryAccess>
+  struct execution_traits<optype::op0_op1_op2, MemoryAccess> : execution_traits_op0_op1_op2<MemoryAccess>
+  {
+  };
+
+  template <>
+  struct execution_traits<optype::jump> : execution_traits_jump
+  {
+  };
+
+  template <>
+  struct execution_traits<optype::cond_jump> : execution_traits_cond_jump
+  {
+  };
+
+  template <opcode Code, bool MemoryAccess = false, typename Policy>
   [[nodiscard]] std::pair<execute_result, optype> execute_opcode(
     Policy& policy, word_t instr, machine_registers& reg, machine_memory& mem)
   {
     using profile_type = typename Policy::profile_type;
-    using traits_type = execution_traits<profile_type::template instruction_type<Code>>;
+    using traits_type = execution_traits<profile_type::template instruction_type<Code>, MemoryAccess>;
 
     constexpr optype opt = profile_type::template instruction_type<Code>;
 
@@ -654,10 +706,16 @@ namespace yarisc::arch::detail
       result = execute_opcode<opcode::move>(policy, instr, reg, mem);
       break;
     case opcode::load:
-      result = execute_opcode<opcode::load>(policy, instr, reg, mem);
+      result = execute_opcode<opcode::load, true>(policy, instr, reg, mem);
+      break;
+    case opcode::load_indexed:
+      result = execute_opcode<opcode::load_indexed, true>(policy, instr, reg, mem);
       break;
     case opcode::store:
-      result = execute_opcode<opcode::store>(policy, instr, reg, mem);
+      result = execute_opcode<opcode::store, true>(policy, instr, reg, mem);
+      break;
+    case opcode::store_indexed:
+      result = execute_opcode<opcode::store_indexed, true>(policy, instr, reg, mem);
       break;
     case opcode::add:
       result = execute_opcode<opcode::add>(policy, instr, reg, mem);

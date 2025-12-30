@@ -37,12 +37,11 @@ SCENARIO("execute the MOV instruction", "[instruction]")
       {
         yarisc::test::machine expected = current;
         expected.set_r2(0x1234);
-        expected.set_status(yarisc::test::status_c);
         expected.advance_ip();
 
         REQUIRE(current.execute_instruction());
 
-        THEN("register `r2` shall have the value `0x1234` and the zero flag shall be cleared")
+        THEN("register `r2` shall have the value `0x1234` and the status flags shall be unchanged")
         {
           CHECK(current == expected);
         }
@@ -72,12 +71,11 @@ SCENARIO("execute the MOV instruction", "[instruction]")
       {
         yarisc::test::machine expected = current;
         expected.set_r2(0x0);
-        expected.set_status(yarisc::test::status_z);
         expected.advance_ip();
 
         REQUIRE(current.execute_instruction());
 
-        THEN("register `r2` shall have the value `0x0` and the zero flag shall be set")
+        THEN("register `r2` shall have the value `0x0` and the zero flag shall not be set")
         {
           CHECK(current == expected);
         }

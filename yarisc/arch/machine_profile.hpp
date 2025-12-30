@@ -33,9 +33,9 @@ namespace yarisc::arch
       /* 0x00 */ {},
       /* 0x01 */ {"MOV", feature_level::min, optype::op0_op1},
       /* 0x02 */ {"LDR", feature_level::min, optype::op0_op1},
-      /* 0x03 */ {},
+      /* 0x03 */ {"LDX", feature_level::min, optype::op0_op1_op2},
       /* 0x04 */ {"STR", feature_level::min, optype::op0_op1},
-      /* 0x05 */ {},
+      /* 0x05 */ {"STX", feature_level::min, optype::op0_op1_op2},
       /* 0x06 */ {},
       /* 0x07 */ {},
       /* 0x08 */ {},
@@ -150,8 +150,8 @@ namespace yarisc::arch
    * @brief Instruction opcode of certain type in the given profile
    */
   template <opcode Code, optype Type, typename Profile>
-  concept opcode_of_type = (Profile::template instruction_supported<Code>) &&
-                           (Profile::template instruction_type<Code> == Type);
+  concept opcode_of_type =
+    (Profile::template instruction_supported<Code>) && (Profile::template instruction_type<Code> == Type);
 
 } // namespace yarisc::arch
 

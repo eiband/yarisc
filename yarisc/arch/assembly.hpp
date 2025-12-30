@@ -89,6 +89,10 @@ namespace yarisc::arch
      * implicitly is the same as the first operand effectively writing the result back into the first operand register.
      *
      * So the accumulator is not a register on its own, it is an alias for the first operand.
+     *
+     * @note
+     * There is an exception for indexed loads and stores. In this case the accumulator is replaced by the frame pointer
+     * or the stack pointer (depending on the order of the arguments).
      */
     inline constexpr accumulator_t accumulator{};
 

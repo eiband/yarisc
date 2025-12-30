@@ -93,14 +93,15 @@ namespace yarisc::arch
    * - `loc == 0`: short immediate constants can be stored in `st`
    * - `loc == 1`: the immediate constant is in the word following this instruction word
    *
-   * The operand assignment flag `as` indicates which operand the constant is assigned to:
+   * The operand assignment flag `as` indicates which operand the constant is assigned to (this currently wastes a bit
+   * in commutative instructions):
    *
    * - `as == 0`: the immediate constant is `op1`
    * - `as == 1`: the immediate constant is `op2`
    *
    * The remaining operand is defined as following:
    *
-   * - `loc == 0`: the register `op0`
+   * - `loc == 0`: the register `r6` as `op1` and `r5` as `op2` for loads and stores, otherwise the register `op0`
    * - `loc == 1`: the register named by bits [11-9] (behavior is undefined unless bit [12] is set to zero)
    *
    * Jump instructions have a different layout:
@@ -306,39 +307,41 @@ namespace yarisc::arch
     /**
      * @brief MOV instruction
      *
-     * Moves `op1` or an immediate constant into register `op0`. Updates the zero flag.
+     * Moves `op1` or an immediate constant into register `op0`.
      */
     move = 0x01,
 
     /**
      * @brief LDR instruction
      *
-     * Loads from the address `op1` or an immediate address into register `op0`. Updates the zero flag.
+     * Loads from the address `op1 + op2` into register `op0`. See special handling of short immediate constants which
+     * allow to select the stack pointer or frame pointer.
      */
     load = 0x02,
 
     /**
-     * @brief LDR instruction (instruction pointer relative addressing)
+     * @brief LDX instruction
      *
-     * @note
-     * This instruction is currently not implemented.
+     * Loads from the address `op1 + op2` into register `op0`. See special handling of short immediate constants which
+     * allow to select the stack pointer or frame pointer.
      */
-    relative_load = 0x03,
+    load_indexed = 0x03,
 
     /**
      * @brief STR instruction
      *
-     * Stores the value of register `op0` to the address `op1` or an immediate address.
+     * Stores the value of register `op0` to the address `op1 + op2`. See special handling of short immediate constants
+     * which allow to select the stack pointer or frame pointer.
      */
     store = 0x04,
 
     /**
-     * @brief STR instruction (instruction pointer relative addressing)
+     * @brief STX instruction
      *
-     * @note
-     * This instruction is currently not implemented.
+     * Stores the value of register `op0` to the address `op1 + op2`. See special handling of short immediate constants
+     * which allow to select the stack pointer or frame pointer.
      */
-    relative_store = 0x05,
+    store_indexed = 0x05,
 
     /**
      * @brief ADD instruction

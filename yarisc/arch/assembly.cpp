@@ -22,6 +22,8 @@ namespace yarisc::arch
 
     constinit const std::string_view mnemonic_sep = " ";
     constinit const std::string_view argument_sep = ", ";
+    constinit const std::string_view access_open = "[";
+    constinit const std::string_view access_close = "]";
 
     constinit const std::array<std::string_view, num_registers> reg_names{
       {"r0", "r1", "r2", "r3", "r4", "r5", "sp", "ip"}};
@@ -154,6 +156,7 @@ namespace yarisc::arch
       return {1, std::move(oss).str()};
     }
 
+    template <bool MemoryAccess>
     [[nodiscard]] disassembly convert_two_operands(std::string_view mnemonic, word_t instr, word_t arg)
     {
       int words = 1;
@@ -161,20 +164,30 @@ namespace yarisc::arch
       std::ostringstream oss;
       output_first_reg_operand(oss << mnemonic << mnemonic_sep, instr) << argument_sep;
 
+      if constexpr (MemoryAccess)
+        oss << access_open;
+
       if (instr & operand_sel_mask)
         (instr & operand_loc_mask) ? output_immediate(oss, arg, words) : output_short_immediate(oss, instr);
       else
         output_second_reg_operand(oss, instr);
 
+      if constexpr (MemoryAccess)
+        oss << access_close;
+
       return {words, std::move(oss).str()};
     }
 
+    template <bool MemoryAccess>
     [[nodiscard]] disassembly convert_three_operands(std::string_view mnemonic, word_t instr, word_t arg)
     {
       int words = 1;
 
       std::ostringstream oss;
       output_first_reg_operand(oss << mnemonic << mnemonic_sep, instr) << argument_sep;
+
+      if constexpr (MemoryAccess)
+        oss << access_open;
 
       if (instr & operand_sel_mask)
       {
@@ -199,19 +212,33 @@ namespace yarisc::arch
           return std::move(oss).str();
         };
 
-        const auto operands = (instr & operand_loc_mask)
-                                ? std::array<std::string, 2>{{get_immediate(arg, words), get_second_reg_name(instr)}}
-                                : std::array<std::string, 2>{{get_short_immediate(instr), get_first_reg_name(instr)}};
-
         const auto as = static_cast<unsigned int>((instr & operand_as_mask) >> operand_as_offset);
 
-        oss << operands[as] << argument_sep << operands[static_cast<unsigned int>(1 - as)];
+        if constexpr (MemoryAccess)
+        {
+          // Special case for loads and stores
+          if (instr & operand_loc_mask)
+            oss << get_second_reg_name(instr) << argument_sep << get_immediate(arg, words);
+          else
+            oss << reg_names[as + 5] << argument_sep << get_short_immediate(instr);
+        }
+        else
+        {
+          const auto operands = (instr & operand_loc_mask)
+                                  ? std::array<std::string, 2>{{get_immediate(arg, words), get_second_reg_name(instr)}}
+                                  : std::array<std::string, 2>{{get_short_immediate(instr), get_first_reg_name(instr)}};
+
+          oss << operands[as] << argument_sep << operands[static_cast<unsigned int>(1 - as)];
+        }
       }
       else
       {
         output_second_reg_operand(oss, instr) << argument_sep;
         output_third_reg_operand(oss, instr);
       }
+
+      if constexpr (MemoryAccess)
+        oss << access_close;
 
       return {words, std::move(oss).str()};
     }
@@ -247,11 +274,10 @@ namespace yarisc::arch
       return {words, std::move(oss).str()};
     }
 
-    template <optype Type>
+    template <optype Type, bool MemoryAccess = false>
     struct disassemble_traits;
 
-    template <>
-    struct disassemble_traits<optype::basic>
+    struct disassemble_traits_basic
     {
       [[nodiscard]] static disassembly disassemble(std::string_view mnemonic, word_t instr, word_t)
       {
@@ -259,8 +285,7 @@ namespace yarisc::arch
       }
     };
 
-    template <>
-    struct disassemble_traits<optype::op0>
+    struct disassemble_traits_op0
     {
       [[nodiscard]] static disassembly disassemble(std::string_view mnemonic, word_t instr, word_t)
       {
@@ -268,26 +293,27 @@ namespace yarisc::arch
       }
     };
 
-    template <>
-    struct disassemble_traits<optype::op0_op1>
+    template <bool MemoryAccess>
+    struct disassemble_traits_op0_op1
     {
       [[nodiscard]] static disassembly disassemble(std::string_view mnemonic, word_t instr, word_t arg)
       {
-        return check_two_operands(instr) ? convert_two_operands(mnemonic, instr, arg) : invalid_bits_error(instr);
+        return check_two_operands(instr) ? convert_two_operands<MemoryAccess>(mnemonic, instr, arg)
+                                         : invalid_bits_error(instr);
       }
     };
 
-    template <>
-    struct disassemble_traits<optype::op0_op1_op2>
+    template <bool MemoryAccess>
+    struct disassemble_traits_op0_op1_op2
     {
       [[nodiscard]] static disassembly disassemble(std::string_view mnemonic, word_t instr, word_t arg)
       {
-        return check_three_operands(instr) ? convert_three_operands(mnemonic, instr, arg) : invalid_bits_error(instr);
+        return check_three_operands(instr) ? convert_three_operands<MemoryAccess>(mnemonic, instr, arg)
+                                           : invalid_bits_error(instr);
       }
     };
 
-    template <>
-    struct disassemble_traits<optype::jump>
+    struct disassemble_traits_jump
     {
       [[nodiscard]] static disassembly disassemble(std::string_view mnemonic, word_t instr, word_t arg)
       {
@@ -295,8 +321,7 @@ namespace yarisc::arch
       }
     };
 
-    template <>
-    struct disassemble_traits<optype::cond_jump>
+    struct disassemble_traits_cond_jump
     {
       [[nodiscard]] static disassembly disassemble(std::string_view mnemonic, word_t instr, word_t arg)
       {
@@ -304,11 +329,41 @@ namespace yarisc::arch
       }
     };
 
-    template <opcode Code, typename Profile>
+    template <>
+    struct disassemble_traits<optype::basic> : disassemble_traits_basic
+    {
+    };
+
+    template <>
+    struct disassemble_traits<optype::op0> : disassemble_traits_op0
+    {
+    };
+
+    template <bool MemoryAccess>
+    struct disassemble_traits<optype::op0_op1, MemoryAccess> : disassemble_traits_op0_op1<MemoryAccess>
+    {
+    };
+
+    template <bool MemoryAccess>
+    struct disassemble_traits<optype::op0_op1_op2, MemoryAccess> : disassemble_traits_op0_op1_op2<MemoryAccess>
+    {
+    };
+
+    template <>
+    struct disassemble_traits<optype::jump> : disassemble_traits_jump
+    {
+    };
+
+    template <>
+    struct disassemble_traits<optype::cond_jump> : disassemble_traits_cond_jump
+    {
+    };
+
+    template <opcode Code, typename Profile, bool MemoryAccess = false>
     [[nodiscard]] disassembly disassemble_opcode(word_t instr, [[maybe_unused]] word_t arg)
     {
       using profile_type = Profile;
-      using traits_type = disassemble_traits<profile_type::template instruction_type<Code>>;
+      using traits_type = disassemble_traits<profile_type::template instruction_type<Code>, MemoryAccess>;
 
       if constexpr (profile_type::template instruction_supported<Code>)
         return traits_type::disassemble(profile_type::template instruction_mnemonic<Code>, instr, arg);
@@ -324,9 +379,13 @@ namespace yarisc::arch
       case opcode::move:
         return disassemble_opcode<opcode::move, Profile>(instr, arg);
       case opcode::load:
-        return disassemble_opcode<opcode::load, Profile>(instr, arg);
+        return disassemble_opcode<opcode::load, Profile, true>(instr, arg);
+      case opcode::load_indexed:
+        return disassemble_opcode<opcode::load_indexed, Profile, true>(instr, arg);
       case opcode::store:
-        return disassemble_opcode<opcode::store, Profile>(instr, arg);
+        return disassemble_opcode<opcode::store, Profile, true>(instr, arg);
+      case opcode::store_indexed:
+        return disassemble_opcode<opcode::store_indexed, Profile, true>(instr, arg);
       case opcode::add:
         return disassemble_opcode<opcode::add, Profile>(instr, arg);
       case opcode::add_with_carry:
