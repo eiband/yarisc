@@ -43,6 +43,11 @@ namespace yarisc::emu
     {
     }
 
+    void update(const arch::machine& m) override
+    {
+      session_->update_state(m);
+    }
+
     bool execute(arch::machine& m, arch::execution_mode mode) override
     {
       const arch::debugger_ptr dbg = get_debugger();
@@ -115,7 +120,7 @@ namespace yarisc::emu
         const arch::debugger_view view{
           dbg, current_registers, current_memory, previous_registers, previous_memory, info, error};
 
-        // It is faster to accumulate everyting in a string first and then output the whole string at once
+        // It is faster to accumulate everything in a string first and then output the whole string at once
         std::ostringstream oss;
         oss << reset_cursor(ctx, clear_display_) << utils::color::reset(ctx) << view;
 
@@ -359,7 +364,10 @@ namespace yarisc::emu
     : emulator{level, mode}
   {
     if (!image.empty())
+    {
       machine_.load(image);
+      viewer_->update(machine_);
+    }
   }
 
 } // namespace yarisc::emu

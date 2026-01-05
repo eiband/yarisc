@@ -6,6 +6,7 @@
 #include <emu/emulator.hpp>
 
 #include <exception>
+#include <filesystem>
 #include <iostream>
 
 int main(int argc, char* argv[])
@@ -15,7 +16,10 @@ int main(int argc, char* argv[])
 
   try
   {
-    emulator em{emulator::default_level, emulator_mode::interactive};
+    // Load image from command line. An empty string means that there is no image.
+    const std::filesystem::path image{(argc == 2) ? argv[1] : ""};
+
+    emulator em{image, emulator::default_level, emulator_mode::interactive};
 
     if (!em.execute(execution_mode::strict))
     {

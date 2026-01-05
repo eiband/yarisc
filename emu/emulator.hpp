@@ -93,6 +93,7 @@ namespace yarisc::emu
         return debugger_;
       }
 
+      virtual void update(const arch::machine& m) = 0;
       virtual bool execute(arch::machine& m, arch::execution_mode mode) = 0;
 
     private:
