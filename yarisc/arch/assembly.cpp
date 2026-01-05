@@ -452,12 +452,20 @@ namespace yarisc::arch
         return disassemble_opcode<opcode::store_indexed, Profile, true>(instr, arg);
       case opcode::add:
         return disassemble_opcode<opcode::add, Profile>(instr, arg);
-      case opcode::add_with_carry:
-        return disassemble_opcode<opcode::add_with_carry, Profile>(instr, arg);
       case opcode::adds:
         return disassemble_opcode<opcode::adds, Profile>(instr, arg);
+      case opcode::add_with_carry:
+        return disassemble_opcode<opcode::add_with_carry, Profile>(instr, arg);
       case opcode::adds_with_carry:
         return disassemble_opcode<opcode::adds_with_carry, Profile>(instr, arg);
+      case opcode::sub:
+        return disassemble_opcode<opcode::sub, Profile>(instr, arg);
+      case opcode::subs:
+        return disassemble_opcode<opcode::subs, Profile>(instr, arg);
+      case opcode::sub_with_borrow:
+        return disassemble_opcode<opcode::sub_with_borrow, Profile>(instr, arg);
+      case opcode::subs_with_borrow:
+        return disassemble_opcode<opcode::subs_with_borrow, Profile>(instr, arg);
       case opcode::branch:
         return disassemble_opcode<opcode::branch, Profile>(instr, arg);
       case opcode::cond_branch:

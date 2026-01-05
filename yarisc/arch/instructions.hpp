@@ -335,25 +335,57 @@ namespace yarisc::arch
     add = 0x10,
 
     /**
+     * @brief ADDS instruction
+     *
+     * Adds `op1` and `op2` and stores the result in register `op0`. Updates the negative, zero, carry, and overflow
+     * status flags.
+     */
+    adds = 0x11,
+
+    /**
      * @brief ADC instruction
      *
      * Adds `op1`, `op2`, and the carry flag and stores the result in register `op0`.
      */
-    add_with_carry = 0x11,
+    add_with_carry = 0x12,
 
     /**
-     * @brief ADD instruction
+     * @brief ADCS instruction
      *
-     * Adds `op1` and `op2` and stores the result in register `op0`. Updates the zero and carry flags.
-     */
-    adds = 0x12,
-
-    /**
-     * @brief ADC instruction
-     *
-     * Adds `op1`, `op2`, and the carry flag and stores the result in register `op0`. Updates the zero and carry flags.
+     * Adds `op1`, `op2`, and the carry flag and stores the result in register `op0`. Updates the negative, zero, carry,
+     * and overflow status flags.
      */
     adds_with_carry = 0x13,
+
+    /**
+     * @brief SUB instruction
+     *
+     * Adds `op1` and `op2` and stores the result in register `op0`.
+     */
+    sub = 0x14,
+
+    /**
+     * @brief SUBS instruction
+     *
+     * Adds `op1` and `op2` and stores the result in register `op0`. Updates the negative, zero, carry, and overflow
+     * status flags.
+     */
+    subs = 0x15,
+
+    /**
+     * @brief SBC instruction
+     *
+     * Adds `op1`, `op2`, and the carry flag and stores the result in register `op0`.
+     */
+    sub_with_borrow = 0x16,
+
+    /**
+     * @brief SBCS instruction
+     *
+     * Adds `op1`, `op2`, and the carry flag and stores the result in register `op0`. Updates the negative, zero, carry,
+     * and overflow status flags.
+     */
+    subs_with_borrow = 0x17,
 
     /**
      * @brief BRA instruction

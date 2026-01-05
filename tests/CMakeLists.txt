@@ -12,6 +12,7 @@ add_executable(yarisc-tests
   move_test.cpp
   nop_test.cpp
   store_test.cpp
+  sub_test.cpp
 )
 
 target_compile_features(yarisc-tests
