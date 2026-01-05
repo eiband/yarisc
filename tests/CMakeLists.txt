@@ -5,6 +5,7 @@ include(Catch)
 add_executable(yarisc-tests
   add_test.cpp
   branch_test.cpp
+  compare_test.cpp
   halt_test.cpp
   load_test.cpp
   machine.cpp

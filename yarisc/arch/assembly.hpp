@@ -313,14 +313,24 @@ namespace yarisc::arch
       return make_op0(op0) | make_op1(op1);
     }
 
+    [[nodiscard]] inline word_t make_operands(immediate_t, regaddr op1) noexcept
+    {
+      return make_op0(op1) | operand_imm_mask;
+    }
+
     [[nodiscard]] inline word_t make_operands(regaddr op0, immediate_t) noexcept
     {
-      return make_op0(op0) | operand_imm_mask;
+      return make_op0(op0) | operand_as_mask | operand_imm_mask;
+    }
+
+    [[nodiscard]] inline word_t make_operands(short_immediate op0, regaddr op1) noexcept
+    {
+      return make_op0(op1) | make_immediate(op0) | operand_sel_mask;
     }
 
     [[nodiscard]] inline word_t make_operands(regaddr op0, short_immediate op1) noexcept
     {
-      return make_op0(op0) | make_immediate(op1) | operand_sel_mask;
+      return make_op0(op0) | make_immediate(op1) | operand_as_mask | operand_sel_mask;
     }
 
     [[nodiscard]] inline word_t make_operands(regaddr op0, regaddr op1, regaddr op2) noexcept
@@ -395,7 +405,7 @@ namespace yarisc::arch
    */
   template <opcode Code, feature_level Level = feature_level_latest>
     requires opcode_of_type<Code, optype::op0_op1, machine_profile<Level>>
-  [[nodiscard]] auto assemble(assembly::regaddr op0, unary_operand auto op1) noexcept
+  [[nodiscard]] auto assemble(unary_operand auto op0, unary_operand auto op1) noexcept
     -> decltype(detail::make_operands(op0, op1))
   {
     return static_cast<word_t>(Code) | detail::make_operands(op0, op1);

@@ -59,14 +59,14 @@ namespace yarisc::arch::detail
     return static_cast<word_t>((result & carry_bit_mask) >> carry_bit_shift);
   }
 
-  [[nodiscard]] word_t get_add_overflow_status(word_t result, word_t op1, word_t op2) noexcept
+  [[nodiscard]] word_t get_add_overflow_status(word_t result, word_t lhs, word_t rhs) noexcept
   {
-    return static_cast<word_t>((~(op1 ^ op2) & (op1 ^ result) & overflow_bit_mask) >> overflow_bit_shift);
+    return static_cast<word_t>((~(lhs ^ rhs) & (lhs ^ result) & overflow_bit_mask) >> overflow_bit_shift);
   }
 
-  [[nodiscard]] word_t get_sub_overflow_status(word_t result, word_t op1, word_t op2) noexcept
+  [[nodiscard]] word_t get_sub_overflow_status(word_t result, word_t lhs, word_t rhs) noexcept
   {
-    return static_cast<word_t>(((op1 ^ op2) & (op1 ^ result) & overflow_bit_mask) >> overflow_bit_shift);
+    return static_cast<word_t>(((lhs ^ rhs) & (lhs ^ result) & overflow_bit_mask) >> overflow_bit_shift);
   }
 
   /*
@@ -305,6 +305,28 @@ namespace yarisc::arch::detail
   };
 
   template <>
+  struct exec_op<opcode::compare>
+  {
+    template <typename Policy>
+    [[nodiscard]] static execute_result execute(
+      Policy&, machine_registers& reg, machine_memory&, word_t op0, word_t op1) noexcept
+    {
+      const double_word_t result32 =
+        static_cast<double_word_t>(op0) + static_cast<double_word_t>(static_cast<word_t>(~op1)) + 1;
+
+      const word_t result16 = static_cast<word_t>(result32);
+
+      // Update the status register
+      reg.status.s = get_negative_status(result16) |              // N
+                     get_zero_status(result16) |                  // Z
+                     get_carry_status(result32) |                 // C
+                     get_sub_overflow_status(result16, op0, op1); // V
+
+      return {};
+    }
+  };
+
+  template <>
   struct exec_op<opcode::branch>
   {
     template <typename Policy>
@@ -390,7 +412,6 @@ namespace yarisc::arch::detail
     non_zero_st_two_operands = 3,
     non_zero_unassigned_three_operands = 4,
     non_zero_branch_addr_operands = 5,
-    assignment_two_operands = 6,
   };
 
   [[nodiscard]] inline std::string instruction_error(const machine_registers& reg, word_t instr)
@@ -552,9 +573,7 @@ namespace yarisc::arch::detail
           {
             if (instr & operand_sel_mask)
             {
-              if (instr & operand_as_mask) [[unlikely]]
-                return panic(nonzero_error(instr, invalid_instruction_reason::assignment_two_operands));
-              else if ((instr & operand_loc_mask) && (instr & operand_st_mask)) [[unlikely]]
+              if ((instr & operand_loc_mask) && (instr & operand_st_mask)) [[unlikely]]
                 return panic(nonzero_error(instr, invalid_instruction_reason::non_zero_st_two_operands));
             }
             else
@@ -736,8 +755,19 @@ namespace yarisc::arch::detail
     {
       execute_result result{};
 
-      word_t& op0 = first_operand(instr, reg);
-      const word_t op1 = second_operand(policy, instr, reg, mem, result);
+      word_t& reg_ref = first_operand(instr, reg);
+      word_t reg_or_imm = second_operand(policy, instr, reg, mem, result);
+
+      word_t* op0 = &reg_ref;
+      word_t* op1 = &reg_or_imm;
+
+      if (instr & operand_sel_mask)
+      {
+        // Swapping the immediate with the register only makes sense for instructions that don't produce a value. If
+        // this is selected for an instruction that writes back a value then this value is discarded.
+        if ((instr & operand_as_mask) == 0)
+          std::swap(op0, op1);
+      }
 
       if constexpr (Policy::debug_policy::enabled)
       {
@@ -745,7 +775,7 @@ namespace yarisc::arch::detail
           return result;
       }
 
-      return exec_op<Code>::execute(policy, reg, mem, op0, op1);
+      return exec_op<Code>::execute(policy, reg, mem, *op0, *op1);
     }
   };
 
@@ -920,6 +950,9 @@ namespace yarisc::arch::detail
       break;
     case opcode::subs_with_borrow:
       result = execute_opcode<opcode::subs_with_borrow>(policy, instr, reg, mem);
+      break;
+    case opcode::compare:
+      result = execute_opcode<opcode::compare>(policy, instr, reg, mem);
       break;
     case opcode::branch:
       result = execute_opcode<opcode::branch>(policy, instr, reg, mem);

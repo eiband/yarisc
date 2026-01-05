@@ -85,9 +85,8 @@ namespace yarisc::arch
 
     [[nodiscard]] bool check_two_operands(word_t instr) noexcept
     {
-      return (instr & operand_sel_mask)
-               ? !(instr & operand_as_mask) && !((instr & operand_loc_mask) && (instr & operand_st_mask))
-               : !(instr & operand_op2_mask);
+      return (instr & operand_sel_mask) ? !((instr & operand_loc_mask) && (instr & operand_st_mask))
+                                        : !(instr & operand_op2_mask);
     }
 
     [[nodiscard]] bool check_three_operands(word_t instr) noexcept
@@ -186,6 +185,32 @@ namespace yarisc::arch
       return output_address_impl(os, address);
     }
 
+    [[nodiscard]] std::string get_first_reg_name(word_t instr)
+    {
+      return std::string{reg_names[get_first_reg_operand(instr)]};
+    }
+
+    [[nodiscard]] std::string get_second_reg_name(word_t instr)
+    {
+      return std::string{reg_names[get_second_reg_operand(instr)]};
+    }
+
+    [[nodiscard]] std::string get_immediate(word_t arg, int& words)
+    {
+      std::ostringstream oss;
+      output_immediate(oss, arg, words);
+
+      return std::move(oss).str();
+    }
+
+    [[nodiscard]] std::string get_short_immediate(word_t instr)
+    {
+      std::ostringstream oss;
+      output_short_immediate(oss, instr);
+
+      return std::move(oss).str();
+    }
+
     [[nodiscard]] disassembly convert_one_operand(std::string_view mnemonic, word_t instr)
     {
       std::ostringstream oss;
@@ -200,15 +225,32 @@ namespace yarisc::arch
       int words = 1;
 
       std::ostringstream oss;
-      output_first_reg_operand(oss << mnemonic << mnemonic_sep, instr) << argument_sep;
-
-      if constexpr (MemoryAccess)
-        oss << access_open;
+      oss << mnemonic << mnemonic_sep;
 
       if (instr & operand_sel_mask)
-        (instr & operand_loc_mask) ? output_immediate(oss, arg, words) : output_short_immediate(oss, instr);
+      {
+        const auto as = static_cast<unsigned int>((instr & operand_as_mask) >> operand_as_offset);
+
+        const auto operands = (instr & operand_loc_mask)
+                                ? std::array<std::string, 2>{{get_immediate(arg, words), get_first_reg_name(instr)}}
+                                : std::array<std::string, 2>{{get_short_immediate(instr), get_first_reg_name(instr)}};
+
+        oss << operands[as] << argument_sep;
+
+        if constexpr (MemoryAccess)
+          oss << access_open;
+
+        oss << operands[static_cast<unsigned int>(1 - as)];
+      }
       else
+      {
+        output_first_reg_operand(oss, instr) << argument_sep;
+
+        if constexpr (MemoryAccess)
+          oss << access_open;
+
         output_second_reg_operand(oss, instr);
+      }
 
       if constexpr (MemoryAccess)
         oss << access_close;
@@ -229,36 +271,15 @@ namespace yarisc::arch
 
       if (instr & operand_sel_mask)
       {
-        const auto get_first_reg_name = [](word_t instr)
-        { return std::string{reg_names[get_first_reg_operand(instr)]}; };
-        const auto get_second_reg_name = [](word_t instr)
-        { return std::string{reg_names[get_second_reg_operand(instr)]}; };
-
-        const auto get_immediate = [](word_t arg, int& words)
-        {
-          std::ostringstream oss;
-          output_immediate(oss, arg, words);
-
-          return std::move(oss).str();
-        };
-
-        const auto get_short_immediate = [](word_t instr)
-        {
-          std::ostringstream oss;
-          output_short_immediate(oss, instr);
-
-          return std::move(oss).str();
-        };
-
         const auto as = static_cast<unsigned int>((instr & operand_as_mask) >> operand_as_offset);
 
         if constexpr (MemoryAccess)
         {
           // Special case for loads and stores
           if (instr & operand_loc_mask)
-            oss << get_second_reg_name(instr) << argument_sep << get_immediate(arg, words);
+            output_immediate(oss << get_second_reg_name(instr) << argument_sep, arg, words);
           else
-            oss << reg_names[as + 5] << argument_sep << get_short_immediate(instr);
+            output_short_immediate(oss << reg_names[as + 5] << argument_sep, instr);
         }
         else
         {
@@ -466,6 +487,8 @@ namespace yarisc::arch
         return disassemble_opcode<opcode::sub_with_borrow, Profile>(instr, arg);
       case opcode::subs_with_borrow:
         return disassemble_opcode<opcode::subs_with_borrow, Profile>(instr, arg);
+      case opcode::compare:
+        return disassemble_opcode<opcode::compare, Profile>(instr, arg);
       case opcode::branch:
         return disassemble_opcode<opcode::branch, Profile>(instr, arg);
       case opcode::cond_branch:

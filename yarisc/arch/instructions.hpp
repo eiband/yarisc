@@ -96,8 +96,8 @@ namespace yarisc::arch
    * The operand assignment flag `as` indicates which operand the constant is assigned to (this currently wastes a bit
    * in commutative instructions):
    *
-   * - `as == 0`: the immediate constant is `op1`
-   * - `as == 1`: the immediate constant is `op2`
+   * - `as == 0`: the immediate constant is on the left-hand side
+   * - `as == 1`: the immediate constant is on the right-hand side
    *
    * The remaining operand is defined as following:
    *
@@ -360,32 +360,39 @@ namespace yarisc::arch
     /**
      * @brief SUB instruction
      *
-     * Adds `op1` and `op2` and stores the result in register `op0`.
+     * Subtracts `op1` from `op2` and stores the result in register `op0`.
      */
     sub = 0x14,
 
     /**
      * @brief SUBS instruction
      *
-     * Adds `op1` and `op2` and stores the result in register `op0`. Updates the negative, zero, carry, and overflow
-     * status flags.
+     * Subtracts `op1` from `op2` and stores the result in register `op0`. Updates the negative, zero, carry, and
+     * overflow status flags.
      */
     subs = 0x15,
 
     /**
      * @brief SBC instruction
      *
-     * Adds `op1`, `op2`, and the carry flag and stores the result in register `op0`.
+     * Subtracts `op1` from `op2` with borrow from the carry flag and stores the result in register `op0`.
      */
     sub_with_borrow = 0x16,
 
     /**
      * @brief SBCS instruction
      *
-     * Adds `op1`, `op2`, and the carry flag and stores the result in register `op0`. Updates the negative, zero, carry,
-     * and overflow status flags.
+     * Subtracts `op1` from `op2` with borrow from the carry flag and stores the result in register `op0`. Updates the
+     * negative, zero, carry, and overflow status flags.
      */
     subs_with_borrow = 0x17,
+
+    /**
+     * @brief CMP instruction
+     *
+     * Subtracts `op1` from `op2` and discards the result. Updates the negative, zero, carry, and overflow status flags.
+     */
+    compare = 0x2a,
 
     /**
      * @brief BRA instruction
@@ -394,13 +401,13 @@ namespace yarisc::arch
      * also be achieved with a MOV instruction. However a separate instruction is more readable and we can fit larger
      * immediate addresses in the instruction word.
      */
-    branch = 0x2a,
+    branch = 0x2b,
 
     /**
      * @brief BEQ/BLT/BLE/BLO/BLS/BNE/BGE/BGT/BHS/BHI instructions
      *
-     * Conditional branch instructions have a status flags bitmask that selects on which conditions the branch shall be
-     * active and a invert flag that inverts the branch condition.
+     * Conditional branch instructions have a condition code that selects on which conditions the branch shall be
+     * active. The most significant bit of the condition code is a flag that inverts the branch condition.
      */
     cond_branch = 0x2c,
 
