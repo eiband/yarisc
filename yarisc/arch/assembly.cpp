@@ -454,6 +454,10 @@ namespace yarisc::arch
         return disassemble_opcode<opcode::add, Profile>(instr, arg);
       case opcode::add_with_carry:
         return disassemble_opcode<opcode::add_with_carry, Profile>(instr, arg);
+      case opcode::adds:
+        return disassemble_opcode<opcode::adds, Profile>(instr, arg);
+      case opcode::adds_with_carry:
+        return disassemble_opcode<opcode::adds_with_carry, Profile>(instr, arg);
       case opcode::branch:
         return disassemble_opcode<opcode::branch, Profile>(instr, arg);
       case opcode::cond_branch:

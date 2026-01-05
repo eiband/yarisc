@@ -330,16 +330,30 @@ namespace yarisc::arch
     /**
      * @brief ADD instruction
      *
-     * Adds `op1` and `op2` and stores the result in register `op0`. Updates the zero and carry flags.
+     * Adds `op1` and `op2` and stores the result in register `op0`.
      */
     add = 0x10,
 
     /**
      * @brief ADC instruction
      *
-     * Adds `op1`, `op2`, and the carry flag and stores the result in register `op0`. Updates the zero and carry flags.
+     * Adds `op1`, `op2`, and the carry flag and stores the result in register `op0`.
      */
     add_with_carry = 0x11,
+
+    /**
+     * @brief ADD instruction
+     *
+     * Adds `op1` and `op2` and stores the result in register `op0`. Updates the zero and carry flags.
+     */
+    adds = 0x12,
+
+    /**
+     * @brief ADC instruction
+     *
+     * Adds `op1`, `op2`, and the carry flag and stores the result in register `op0`. Updates the zero and carry flags.
+     */
+    adds_with_carry = 0x13,
 
     /**
      * @brief BRA instruction

@@ -82,6 +82,41 @@ namespace yarisc::arch::detail
 
       // Write back the result
       op0 = result_word;
+
+      return {};
+    }
+  };
+
+  template <>
+  struct exec_op<opcode::add_with_carry>
+  {
+    template <typename Policy>
+    [[nodiscard]] static execute_result execute(
+      Policy&, machine_registers& reg, machine_memory&, word_t& op0, word_t op1, word_t op2) noexcept
+    {
+      const double_word_t carry = (reg.status.s & status_register::carry_flag) >> status_register::carry_pos;
+      const double_word_t result = static_cast<double_word_t>(op1) + static_cast<double_word_t>(op2) + carry;
+      const auto result_word = static_cast<word_t>(result);
+
+      // Write back the result
+      op0 = result_word;
+
+      return {};
+    }
+  };
+
+  template <>
+  struct exec_op<opcode::adds>
+  {
+    template <typename Policy>
+    [[nodiscard]] static execute_result execute(
+      Policy&, machine_registers& reg, machine_memory&, word_t& op0, word_t op1, word_t op2) noexcept
+    {
+      const double_word_t result = static_cast<double_word_t>(op1) + static_cast<double_word_t>(op2);
+      const auto result_word = static_cast<word_t>(result);
+
+      // Write back the result
+      op0 = result_word;
       // Update the status register
       reg.status.s = get_negative_status(result_word) |              // N
                      get_zero_status(result_word) |                  // Z
@@ -93,7 +128,7 @@ namespace yarisc::arch::detail
   };
 
   template <>
-  struct exec_op<opcode::add_with_carry>
+  struct exec_op<opcode::adds_with_carry>
   {
     template <typename Policy>
     [[nodiscard]] static execute_result execute(
@@ -770,6 +805,12 @@ namespace yarisc::arch::detail
       break;
     case opcode::add_with_carry:
       result = execute_opcode<opcode::add_with_carry>(policy, instr, reg, mem);
+      break;
+    case opcode::adds:
+      result = execute_opcode<opcode::adds>(policy, instr, reg, mem);
+      break;
+    case opcode::adds_with_carry:
+      result = execute_opcode<opcode::adds_with_carry>(policy, instr, reg, mem);
       break;
     case opcode::branch:
       result = execute_opcode<opcode::branch>(policy, instr, reg, mem);
