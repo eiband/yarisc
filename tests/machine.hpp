@@ -32,9 +32,16 @@ namespace yarisc::test
    */
   inline constexpr max_memory_t max_memory{};
 
-  inline constexpr arch::word_t status_c = arch::status_register::carry_flag;
+  inline constexpr arch::word_t status_n = arch::status_register::negative_flag;
   inline constexpr arch::word_t status_z = arch::status_register::zero_flag;
+  inline constexpr arch::word_t status_c = arch::status_register::carry_flag;
+  inline constexpr arch::word_t status_v = arch::status_register::overflow_flag;
+  inline constexpr arch::word_t status_nc = arch::status_register::negative_flag | arch::status_register::carry_flag;
+  inline constexpr arch::word_t status_nv = arch::status_register::negative_flag | arch::status_register::overflow_flag;
   inline constexpr arch::word_t status_zc = arch::status_register::zero_flag | arch::status_register::carry_flag;
+  inline constexpr arch::word_t status_cv = arch::status_register::carry_flag | arch::status_register::overflow_flag;
+  inline constexpr arch::word_t status_nzcv = arch::status_register::negative_flag | arch::status_register::zero_flag |
+                                              arch::status_register::carry_flag | arch::status_register::overflow_flag;
 
   /**
    * @brief Test machine

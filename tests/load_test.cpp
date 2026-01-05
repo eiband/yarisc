@@ -66,7 +66,7 @@ SCENARIO("execute the LDR instruction", "[instruction]")
     WHEN("`r3` has value `0xfefe`, memory at `0x0002` is `0xabcd`, and the status flags set")
     {
       current.set_r3(0xfefe);
-      current.set_status(yarisc::test::status_zc);
+      current.set_status(yarisc::test::status_nzcv);
       current.store(0x0002, 0xabcd);
 
       AND_WHEN("the instruction is executed")
@@ -103,7 +103,7 @@ SCENARIO("execute the LDR instruction", "[instruction]")
     WHEN("`r3` has value `0xfefe`, memory at `0xfffe` is `0xabcd`, and the status flags set")
     {
       current.set_r3(0xfefe);
-      current.set_status(yarisc::test::status_zc);
+      current.set_status(yarisc::test::status_nzcv);
       current.store(0xfffe, 0xabcd);
 
       AND_WHEN("the instruction is executed")
@@ -237,7 +237,7 @@ SCENARIO("execute the LDX instruction", "[instruction]")
     {
       current.set_r4(0xfefe);
       current.set_r5(0x0004);
-      current.set_status(yarisc::test::status_zc);
+      current.set_status(yarisc::test::status_nzcv);
       current.store(0x0006, 0xabcd);
 
       AND_WHEN("the instruction is executed")
@@ -275,7 +275,7 @@ SCENARIO("execute the LDX instruction", "[instruction]")
     {
       current.set_r3(0xfefe);
       current.set_sp(0x0008);
-      current.set_status(yarisc::test::status_zc);
+      current.set_status(yarisc::test::status_nzcv);
       current.store(0x0006, 0xabcd);
 
       AND_WHEN("the instruction is executed")

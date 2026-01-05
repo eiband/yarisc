@@ -52,7 +52,7 @@ namespace yarisc::arch
   /**
    * @brief Instruction operand mask
    *
-   * All instructions other than jumps may have zero to three operands. These instructions have the following layout:
+   * All instructions other than branches may have zero to three operands. These instructions have the following layout:
    *
    * @verbatim
    *
@@ -104,7 +104,7 @@ namespace yarisc::arch
    * - `loc == 0`: the register `r6` as `op1` and `r5` as `op2` for loads and stores, otherwise the register `op0`
    * - `loc == 1`: the register named by bits [11-9] (behavior is undefined unless bit [12] is set to zero)
    *
-   * Jump instructions have a different layout:
+   * Branch instructions have a different layout:
    *
    * @verbatim
    *
@@ -118,12 +118,12 @@ namespace yarisc::arch
    * - `aloc == 0`: short address is in `addr` (counted in words)
    * - `aloc == 1`: the long address is in the word following this instruction word
    *
-   * Conditional jumps store additional flags:
+   * Conditional branch instructions store additional flags:
    *
    * @verbatim
    *
-   * [15] [14] [13-9] [8-6] [5-0]
-   * aloc cneg caddr  cflag opcode
+   * [15] [14-10] [9-6] [5-0]
+   * aloc  caddr  ccode opcode
    *
    * @endverbatim
    *
@@ -132,12 +132,21 @@ namespace yarisc::arch
    * - `aloc == 0`: short address is in `caddr` (counted in words)
    * - `aloc == 1`: the long address is in the word following this instruction word
    *
-   * The jump condition is determined using `cflag & status` (behavior is undefined unless bit [8] is set to zero):
+   * The valid condition codes `ccode` are:
    *
-   * - `cneg == 0`: the jump is performed if `cflag & status != 0x0`
-   * - `cneg == 1`: the jump is performed if `cflag & status == 0x0`
+   * - `0001`: equal
+   * - `0010`: less signed
+   * - `0011`: less or equal signed
+   * - `0100`: less unsigned
+   * - `0101`: less or equal unsigned
+   * - `1001`: not equal
+   * - `1010`: greater or equal signed
+   * - `1011`: greater signed
+   * - `1100`: greater or equal unsigned
+   * - `1101`: greater unsigned
    *
-   * Short jump addresses are always measured in words. Long addresses loaded from the next word are in bytes as usual.
+   * Short branch addresses are always measured in words. Long addresses loaded from the next word are in bytes as
+   * usual.
    *
    * Short immediate constants and short addresses are always sign-extended to keep the decoding simple.
    */
@@ -224,6 +233,11 @@ namespace yarisc::arch
   inline constexpr std::size_t operand_as_offset = 13;
 
   /**
+   * @brief Mask for the `aloc` flag
+   */
+  inline constexpr word_t operand_addr_loc_mask = 0b1000000000000000;
+
+  /**
    * @brief Mask for the address `addr`
    */
   inline constexpr word_t operand_addr_mask = 0b0111111111000000;
@@ -234,39 +248,9 @@ namespace yarisc::arch
   inline constexpr word_t operand_addr_sign_mask = 0b0000001000000000;
 
   /**
-   * @brief Mask for the `aloc` flag
-   */
-  inline constexpr word_t operand_addr_loc_mask = 0b1000000000000000;
-
-  /**
-   * @brief Mask for the `cflag` flags
-   */
-  inline constexpr word_t operand_cond_flag_mask = 0b0000000011000000;
-
-  /**
-   * @brief Mask for the `cflag` carry flag
-   */
-  inline constexpr word_t operand_cond_flag_carry_mask = 0b0000000001000000;
-
-  /**
-   * @brief Mask for the `cflag` zero flag
-   */
-  inline constexpr word_t operand_cond_flag_zero_mask = 0b0000000010000000;
-
-  /**
-   * @brief Currently unassigned `cflag`
-   */
-  inline constexpr word_t operand_cond_unassigned_mask = 0b0000000100000000;
-
-  /**
-   * @brief Combination of bits when all set in a conditional jump form an invalid instruction word
-   */
-  inline constexpr word_t operand_cond_invalid_mask = operand_cond_unassigned_mask;
-
-  /**
    * @brief Mask for the address `caddr`
    */
-  inline constexpr word_t operand_cond_addr_mask = 0b0011111000000000;
+  inline constexpr word_t operand_cond_addr_mask = 0b0111110000000000;
 
   /**
    * @brief Sign mask for the address `caddr` after the shift
@@ -274,9 +258,9 @@ namespace yarisc::arch
   inline constexpr word_t operand_cond_addr_sign_mask = 0b0000000000100000;
 
   /**
-   * @brief Mask for the `cneg` flag
+   * @brief Mask for the condition code `ccode`
    */
-  inline constexpr word_t operand_cond_neg_mask = 0b0100000000000000;
+  inline constexpr word_t operand_cond_code_mask = 0b0000001111000000;
 
   /**
    * @brief Shift offset used for address `addr` that takes into account that these are word addresses
@@ -287,17 +271,17 @@ namespace yarisc::arch
   inline constexpr std::size_t operand_addr_offset = 5;
 
   /**
-   * @brief Offset in bits of the `cflag` flags
-   */
-  inline constexpr std::size_t operand_cond_flag_offset = 6;
-
-  /**
    * @brief Shift offset used for address `caddr` that takes into account that these are word addresses
    *
    * @note
    * This has to be used together with the `operand_cond_addr_mask` to ensure that the lowest bit is zero.
    */
-  inline constexpr std::size_t operand_cond_addr_offset = 8;
+  inline constexpr std::size_t operand_cond_addr_offset = 9;
+
+  /**
+   * @brief Offset in bits of the condition code `ccode`
+   */
+  inline constexpr std::size_t operand_cond_code_offset = 6;
 
   /**
    * @brief Instruction opcodes
@@ -358,34 +342,21 @@ namespace yarisc::arch
     add_with_carry = 0x11,
 
     /**
-     * @brief JMP instruction
+     * @brief BRA instruction
      *
-     * This instruction does an unconditional jump, i.e. it loads an immediate constant into `ip`. Note that this can
+     * This instruction does an unconditional branch, i.e. it loads an immediate constant into `ip`. Note that this can
      * also be achieved with a MOV instruction. However a separate instruction is more readable and we can fit larger
      * immediate addresses in the instruction word.
      */
-    jump = 0x2a,
+    branch = 0x2a,
 
     /**
-     * @brief JMP instruction (instruction pointer relative addressing)
-     */
-    relative_jump = 0x2b,
-
-    /**
-     * @brief JMC/JNC/JMZ/JNZ instructions
+     * @brief BEQ/BLT/BLE/BLO/BLS/BNE/BGE/BGT/BHS/BHI instructions
      *
-     * Conditional jump instructions have a status flags bitmask that selects on which conditions the jump shall be
-     * active and a negate flag that inverts the jump condition.
+     * Conditional branch instructions have a status flags bitmask that selects on which conditions the branch shall be
+     * active and a invert flag that inverts the branch condition.
      */
-    cond_jump = 0x2c,
-
-    /**
-     * @brief JMC/JNC/JMZ/JNZ instructions (instruction pointer relative addressing)
-     *
-     * @note
-     * This instruction is currently not implemented.
-     */
-    relative_cond_jump = 0x2d,
+    cond_branch = 0x2c,
 
     /**
      * @brief NOP instruction
@@ -426,14 +397,14 @@ namespace yarisc::arch
     op0_op1_op2,
 
     /**
-     * @brief Jump instruction
+     * @brief Branch instruction
      */
-    jump,
+    branch,
 
     /**
-     * @brief Conditional jump instruction
+     * @brief Conditional branch instruction
      */
-    cond_jump,
+    cond_branch,
   };
 
 } // namespace yarisc::arch

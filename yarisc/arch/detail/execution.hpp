@@ -19,7 +19,6 @@
 #include <sstream>
 #include <string>
 #include <string_view>
-#include <type_traits>
 #include <utility>
 
 namespace yarisc::arch::detail
@@ -33,63 +32,87 @@ namespace yarisc::arch::detail
   inline constexpr execute_result halt_result{false, false};
   inline constexpr execute_result breakpoint_result{false, true};
 
-  struct alu_add_op final
-  {
-    [[nodiscard]] double_word_t operator()(double_word_t op1, double_word_t op2, word_t) const noexcept
-    {
-      return op1 + op2;
-    }
-  };
+  inline constexpr auto negative_bit_offset = 8 * sizeof(word_t) - 1;
+  inline constexpr auto negative_bit_mask = static_cast<word_t>(1 << negative_bit_offset);
+  inline constexpr auto negative_bit_shift = negative_bit_offset - status_register::negative_pos;
 
-  struct alu_add_with_carry_op final
-  {
-    [[nodiscard]] double_word_t operator()(double_word_t op1, double_word_t op2, double_word_t carry) const noexcept
-    {
-      return op1 + op2 + carry;
-    }
-  };
+  inline constexpr auto carry_bit_offset = 8 * sizeof(word_t);
+  inline constexpr auto carry_bit_mask = static_cast<double_word_t>(1 << carry_bit_offset);
+  inline constexpr auto carry_bit_shift = carry_bit_offset - status_register::carry_pos;
 
-  template <typename Op>
-  struct exec_alu_op
+  inline constexpr auto overflow_bit_offset = 8 * sizeof(word_t) - 1;
+  inline constexpr auto overflow_bit_mask = static_cast<word_t>(1 << overflow_bit_offset);
+  inline constexpr auto overflow_bit_shift = overflow_bit_offset - status_register::overflow_pos;
+
+  [[nodiscard]] word_t get_negative_status(word_t result) noexcept
+  {
+    return static_cast<word_t>((result & negative_bit_mask) >> negative_bit_shift);
+  }
+
+  [[nodiscard]] word_t get_zero_status(word_t result) noexcept
+  {
+    return (result == 0x0) ? status_register::zero_flag : 0x0;
+  }
+
+  [[nodiscard]] word_t get_carry_status(double_word_t result) noexcept
+  {
+    return static_cast<word_t>((result & carry_bit_mask) >> carry_bit_shift);
+  }
+
+  [[nodiscard]] word_t get_add_overflow_status(word_t result, word_t op1, word_t op2) noexcept
+  {
+    return static_cast<word_t>((~(op1 ^ op2) & (op1 ^ result) & overflow_bit_mask) >> overflow_bit_shift);
+  }
+
+  /*
+   * Template that is specialized for each operation of the machine
+   */
+  template <opcode Code>
+  struct exec_op;
+
+  template <>
+  struct exec_op<opcode::add>
   {
     template <typename Policy>
     [[nodiscard]] static execute_result execute(
       Policy&, machine_registers& reg, machine_memory&, word_t& op0, word_t op1, word_t op2) noexcept
     {
-      static_assert(status_register::carry_flag == 0x1);
-
-      const auto result = Op{}(op1, op2, reg.status.s & status_register::carry_flag);
+      const double_word_t result = static_cast<double_word_t>(op1) + static_cast<double_word_t>(op2);
       const auto result_word = static_cast<word_t>(result);
 
-      reg.status.s = (result_word == 0x0) ? status_register::zero_flag : 0x0;
-
-      using result_type = std::decay_t<decltype(result)>;
-
-      if constexpr (sizeof(result_type) > sizeof(word_t))
-      {
-        constexpr auto carry_bit_offset = 8 * sizeof(word_t);
-        constexpr auto carry_bit_mask = static_cast<result_type>(1 << carry_bit_offset);
-
-        reg.status.s |= static_cast<word_t>((result & carry_bit_mask) >> carry_bit_offset);
-      }
-
+      // Write back the result
       op0 = result_word;
+      // Update the status register
+      reg.status.s = get_negative_status(result_word) |              // N
+                     get_zero_status(result_word) |                  // Z
+                     get_carry_status(result) |                      // C
+                     get_add_overflow_status(result_word, op1, op2); // V
 
       return {};
     }
   };
 
-  template <opcode Code>
-  struct exec_op;
-
   template <>
-  struct exec_op<opcode::add> : exec_alu_op<alu_add_op>
+  struct exec_op<opcode::add_with_carry>
   {
-  };
+    template <typename Policy>
+    [[nodiscard]] static execute_result execute(
+      Policy&, machine_registers& reg, machine_memory&, word_t& op0, word_t op1, word_t op2) noexcept
+    {
+      const double_word_t carry = (reg.status.s & status_register::carry_flag) >> status_register::carry_pos;
+      const double_word_t result = static_cast<double_word_t>(op1) + static_cast<double_word_t>(op2) + carry;
+      const auto result_word = static_cast<word_t>(result);
 
-  template <>
-  struct exec_op<opcode::add_with_carry> : exec_alu_op<alu_add_with_carry_op>
-  {
+      // Write back the result
+      op0 = result_word;
+      // Update the status register
+      reg.status.s = get_negative_status(result_word) |              // N
+                     get_zero_status(result_word) |                  // Z
+                     get_carry_status(result) |                      // C
+                     get_add_overflow_status(result_word, op1, op2); // V
+
+      return {};
+    }
   };
 
   template <>
@@ -150,7 +173,7 @@ namespace yarisc::arch::detail
   };
 
   template <>
-  struct exec_op<opcode::jump>
+  struct exec_op<opcode::branch>
   {
     template <typename Policy>
     [[nodiscard]] static execute_result execute(
@@ -163,15 +186,44 @@ namespace yarisc::arch::detail
   };
 
   template <>
-  struct exec_op<opcode::cond_jump>
+  struct exec_op<opcode::cond_branch>
   {
     template <typename Policy>
     [[nodiscard]] static execute_result execute(
-      Policy&, machine_registers& reg, machine_memory&, address_t address, word_t flags, bool negate) noexcept
+      Policy&, machine_registers& reg, machine_memory&, address_t address, word_t cond) noexcept
     {
-      const auto cond = static_cast<bool>(reg.status.s & flags);
+      bool branch = false;
 
-      if (cond != negate)
+      switch (cond & 0x7)
+      {
+      //     ┌--- C == 0: `!carry()`
+      //     |┌-- N != V: `less()`
+      //     ||┌- Z == 1: `zero()`
+      //     vvv
+      case 0b001: // equal
+        branch = reg.status.zero();
+        break;
+      case 0b010: // less signed
+        branch = reg.status.less();
+        break;
+      case 0b011: // less or equal signed
+        branch = reg.status.less() || reg.status.zero();
+        break;
+      case 0b100: // less unsigned
+        branch = !reg.status.carry();
+        break;
+      case 0b101: // less or equal unsigned
+        branch = !reg.status.carry() || reg.status.zero();
+        break;
+      default:
+        break;
+      }
+
+      // The most significant bit indicates whether the condition is inverted
+      if (cond & 0x8)
+        branch = !branch;
+
+      if (branch)
         reg.named.set_ip(static_cast<word_t>(address));
 
       return {};
@@ -205,9 +257,8 @@ namespace yarisc::arch::detail
     non_zero_reg_two_operands = 2,
     non_zero_st_two_operands = 3,
     non_zero_unassigned_three_operands = 4,
-    non_zero_unassigned_cond_operands = 5,
-    non_zero_jump_addr_operands = 6,
-    assignment_two_operands = 7,
+    non_zero_branch_addr_operands = 5,
+    assignment_two_operands = 6,
   };
 
   [[nodiscard]] inline std::string instruction_error(const machine_registers& reg, word_t instr)
@@ -389,19 +440,17 @@ namespace yarisc::arch::detail
           }
           break;
 
-          case optype::jump:
+          case optype::branch:
           {
             if ((instr & operand_addr_loc_mask) && (instr & operand_addr_mask)) [[unlikely]]
-              return panic(nonzero_error(instr, invalid_instruction_reason::non_zero_jump_addr_operands));
+              return panic(nonzero_error(instr, invalid_instruction_reason::non_zero_branch_addr_operands));
           }
           break;
 
-          case optype::cond_jump:
+          case optype::cond_branch:
           {
             if ((instr & operand_addr_loc_mask) && (instr & operand_cond_addr_mask)) [[unlikely]]
-              return panic(nonzero_error(instr, invalid_instruction_reason::non_zero_jump_addr_operands));
-            if ((instr & operand_cond_invalid_mask) == operand_cond_invalid_mask) [[unlikely]]
-              return panic(nonzero_error(instr, invalid_instruction_reason::non_zero_unassigned_cond_operands));
+              return panic(nonzero_error(instr, invalid_instruction_reason::non_zero_branch_addr_operands));
           }
           break;
           }
@@ -510,7 +559,7 @@ namespace yarisc::arch::detail
   }
 
   template <typename Policy>
-  [[nodiscard]] address_t jump_address_operand(
+  [[nodiscard]] address_t branch_address_operand(
     Policy& policy, word_t instr, machine_registers& reg, const machine_memory& mem, execute_result& result)
   {
     return (instr & operand_addr_loc_mask) ? static_cast<address_t>(load_instruction(policy, reg, mem, result))
@@ -518,7 +567,7 @@ namespace yarisc::arch::detail
   }
 
   template <typename Policy>
-  [[nodiscard]] address_t cond_jump_address_operand(
+  [[nodiscard]] address_t cond_branch_address_operand(
     Policy& policy, word_t instr, machine_registers& reg, const machine_memory& mem, execute_result& result)
   {
     return (instr & operand_addr_loc_mask) ? static_cast<address_t>(load_instruction(policy, reg, mem, result))
@@ -590,7 +639,7 @@ namespace yarisc::arch::detail
     }
   };
 
-  struct execution_traits_jump
+  struct execution_traits_branch
   {
     template <opcode Code, typename Policy>
     [[nodiscard]] static execute_result execute(
@@ -598,7 +647,7 @@ namespace yarisc::arch::detail
     {
       execute_result result{};
 
-      const address_t address = jump_address_operand(policy, instr, reg, mem, result);
+      const address_t address = branch_address_operand(policy, instr, reg, mem, result);
 
       if constexpr (Policy::debug_policy::enabled)
       {
@@ -610,7 +659,7 @@ namespace yarisc::arch::detail
     }
   };
 
-  struct execution_traits_cond_jump
+  struct execution_traits_cond_branch
   {
     template <opcode Code, typename Policy>
     [[nodiscard]] static execute_result execute(
@@ -618,7 +667,7 @@ namespace yarisc::arch::detail
     {
       execute_result result{};
 
-      const address_t address = cond_jump_address_operand(policy, instr, reg, mem, result);
+      const address_t address = cond_branch_address_operand(policy, instr, reg, mem, result);
 
       if constexpr (Policy::debug_policy::enabled)
       {
@@ -626,10 +675,9 @@ namespace yarisc::arch::detail
           return result;
       }
 
-      const auto flags = static_cast<word_t>((instr & operand_cond_flag_mask) >> operand_cond_flag_offset);
-      const auto negate = static_cast<bool>(instr & operand_cond_neg_mask);
+      const auto cond = static_cast<word_t>((instr & operand_cond_code_mask) >> operand_cond_code_offset);
 
-      return exec_op<Code>::execute(policy, reg, mem, address, flags, negate);
+      return exec_op<Code>::execute(policy, reg, mem, address, cond);
     }
   };
 
@@ -657,12 +705,12 @@ namespace yarisc::arch::detail
   };
 
   template <>
-  struct execution_traits<optype::jump> : execution_traits_jump
+  struct execution_traits<optype::branch> : execution_traits_branch
   {
   };
 
   template <>
-  struct execution_traits<optype::cond_jump> : execution_traits_cond_jump
+  struct execution_traits<optype::cond_branch> : execution_traits_cond_branch
   {
   };
 
@@ -723,11 +771,11 @@ namespace yarisc::arch::detail
     case opcode::add_with_carry:
       result = execute_opcode<opcode::add_with_carry>(policy, instr, reg, mem);
       break;
-    case opcode::jump:
-      result = execute_opcode<opcode::jump>(policy, instr, reg, mem);
+    case opcode::branch:
+      result = execute_opcode<opcode::branch>(policy, instr, reg, mem);
       break;
-    case opcode::cond_jump:
-      result = execute_opcode<opcode::cond_jump>(policy, instr, reg, mem);
+    case opcode::cond_branch:
+      result = execute_opcode<opcode::cond_branch>(policy, instr, reg, mem);
       break;
     case opcode::noop:
       result = execute_opcode<opcode::noop>(policy, instr, reg, mem);

@@ -66,7 +66,7 @@ SCENARIO("execute the STR instruction", "[instruction]")
     WHEN("register `r3` has value `0xabcd`, memory at `0x0006` is `0xfefe`, and the status flags set")
     {
       current.set_r3(0xabcd);
-      current.set_status(yarisc::test::status_zc);
+      current.set_status(yarisc::test::status_nzcv);
       current.store(0x0006, 0xfefe);
 
       AND_WHEN("the instruction is executed")
@@ -103,7 +103,7 @@ SCENARIO("execute the STR instruction", "[instruction]")
     WHEN("register `r3` has value `0xabcd`, memory at `0xfff8` is `0xfefe`, and the status flags set")
     {
       current.set_r3(0xabcd);
-      current.set_status(yarisc::test::status_zc);
+      current.set_status(yarisc::test::status_nzcv);
       current.store(0xfff8, 0xfefe);
 
       AND_WHEN("the instruction is executed")
@@ -220,7 +220,7 @@ SCENARIO("execute the STX instruction", "[instruction]")
     {
       current.set_r3(0xabcd);
       current.set_r5(0x0002);
-      current.set_status(yarisc::test::status_zc);
+      current.set_status(yarisc::test::status_nzcv);
       current.store(0x0008, 0xfefe);
 
       AND_WHEN("the instruction is executed")
@@ -261,7 +261,7 @@ SCENARIO("execute the STX instruction", "[instruction]")
     {
       current.set_r3(0xabcd);
       current.set_sp(0x000a);
-      current.set_status(yarisc::test::status_zc);
+      current.set_status(yarisc::test::status_nzcv);
       current.store(0x0002, 0xfefe);
 
       AND_WHEN("the instruction is executed")

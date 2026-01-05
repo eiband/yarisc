@@ -53,6 +53,26 @@ namespace yarisc::arch
       return {0, std::move(oss).str()};
     }
 
+    [[nodiscard]] word_t get_first_reg_operand(word_t instr) noexcept
+    {
+      return (instr & operand_op0_mask) >> operand_op0_offset;
+    }
+
+    [[nodiscard]] word_t get_second_reg_operand(word_t instr) noexcept
+    {
+      return (instr & operand_op1_mask) >> operand_op1_offset;
+    }
+
+    [[nodiscard]] word_t get_third_reg_operand(word_t instr) noexcept
+    {
+      return (instr & operand_op2_mask) >> operand_op2_offset;
+    }
+
+    [[nodiscard]] assembly::branch_condition get_branch_condition(word_t instr) noexcept
+    {
+      return static_cast<assembly::branch_condition>((instr & operand_cond_code_mask) >> operand_cond_code_offset);
+    }
+
     [[nodiscard]] bool check_no_operands(word_t instr) noexcept
     {
       return !(instr & operand_mask);
@@ -75,30 +95,48 @@ namespace yarisc::arch
       return !((instr & operand_imm_invalid_mask) == operand_imm_invalid_mask);
     }
 
-    [[nodiscard]] bool check_jump(word_t instr) noexcept
+    [[nodiscard]] bool check_branch(word_t instr) noexcept
     {
       return !((instr & operand_addr_loc_mask) && (instr & operand_addr_mask));
     }
 
-    [[nodiscard]] bool check_cond_jump(word_t instr) noexcept
+    [[nodiscard]] bool check_cond_branch(word_t instr) noexcept
     {
-      return !((instr & operand_addr_loc_mask) && (instr & operand_cond_addr_mask)) &&
-             !((instr & operand_cond_invalid_mask) == operand_cond_invalid_mask);
+      switch (get_branch_condition(instr))
+      {
+        using enum assembly::branch_condition;
+
+      case eq:
+      case lt:
+      case le:
+      case lo:
+      case ls:
+      case ne:
+      case ge:
+      case gt:
+      case hs:
+      case hi:
+        return !((instr & operand_addr_loc_mask) && (instr & operand_cond_addr_mask));
+
+      default:
+        // Return false for all unassigned condition codes
+        return false;
+      }
     }
 
     std::ostream& output_first_reg_operand(std::ostream& os, word_t instr)
     {
-      return os << reg_names[(instr & operand_op0_mask) >> operand_op0_offset];
+      return os << reg_names[get_first_reg_operand(instr)];
     }
 
     std::ostream& output_second_reg_operand(std::ostream& os, word_t instr)
     {
-      return os << reg_names[(instr & operand_op1_mask) >> operand_op1_offset];
+      return os << reg_names[get_second_reg_operand(instr)];
     }
 
     std::ostream& output_third_reg_operand(std::ostream& os, word_t instr)
     {
-      return os << reg_names[(instr & operand_op2_mask) >> operand_op2_offset];
+      return os << reg_names[get_third_reg_operand(instr)];
     }
 
     std::ostream& output_immediate_impl(std::ostream& os, word_t imm)
@@ -132,7 +170,7 @@ namespace yarisc::arch
       return detail::output_hex(os << "0x"sv, address);
     }
 
-    std::ostream& output_short_jump_address(std::ostream& os, word_t instr)
+    std::ostream& output_short_branch_address(std::ostream& os, word_t instr)
     {
       const auto address = static_cast<address_t>(
         detail::unpack_signed(instr, operand_addr_mask, operand_addr_sign_mask, operand_addr_offset));
@@ -140,7 +178,7 @@ namespace yarisc::arch
       return output_address_impl(os, address);
     }
 
-    std::ostream& output_short_cond_jump_address(std::ostream& os, word_t instr)
+    std::ostream& output_short_cond_branch_address(std::ostream& os, word_t instr)
     {
       const auto address = static_cast<address_t>(
         detail::unpack_signed(instr, operand_cond_addr_mask, operand_cond_addr_sign_mask, operand_cond_addr_offset));
@@ -192,9 +230,9 @@ namespace yarisc::arch
       if (instr & operand_sel_mask)
       {
         const auto get_first_reg_name = [](word_t instr)
-        { return std::string{reg_names[(instr & operand_op0_mask) >> operand_op0_offset]}; };
+        { return std::string{reg_names[get_first_reg_operand(instr)]}; };
         const auto get_second_reg_name = [](word_t instr)
-        { return std::string{reg_names[(instr & operand_op1_mask) >> operand_op1_offset]}; };
+        { return std::string{reg_names[get_second_reg_operand(instr)]}; };
 
         const auto get_immediate = [](word_t arg, int& words)
         {
@@ -243,37 +281,63 @@ namespace yarisc::arch
       return {words, std::move(oss).str()};
     }
 
-    [[nodiscard]] disassembly convert_jump_operand(std::string_view mnemonic, word_t instr, word_t arg)
+    [[nodiscard]] disassembly convert_branch_operand(std::string_view mnemonic, word_t instr, word_t arg)
     {
       int words = 1;
 
       std::ostringstream oss;
       oss << mnemonic << mnemonic_sep;
 
-      (instr & operand_addr_loc_mask) ? output_immediate(oss, arg, words) : output_short_jump_address(oss, instr);
+      (instr & operand_addr_loc_mask) ? output_immediate(oss, arg, words) : output_short_branch_address(oss, instr);
 
       return {words, std::move(oss).str()};
     }
 
-    [[nodiscard]] disassembly convert_cond_jump_operand(std::string_view mnemonic, word_t instr, word_t arg)
+    [[nodiscard]] disassembly convert_cond_branch_operand(std::string_view mnemonic, word_t instr, word_t arg)
     {
       int words = 1;
 
       std::ostringstream oss;
-      oss << mnemonic << ((instr & operand_cond_neg_mask) ? 'N' : 'M');
+      oss << mnemonic << [instr]()
+      {
+        switch (get_branch_condition(instr))
+        {
+          using enum assembly::branch_condition;
 
-      if (instr & operand_cond_flag_carry_mask)
-        oss << 'C';
-      if (instr & operand_cond_flag_zero_mask)
-        oss << 'Z';
+        case eq:
+          return "EQ";
+        case lt:
+          return "LT";
+        case le:
+          return "LE";
+        case lo:
+          return "LO";
+        case ls:
+          return "LS";
+        case ne:
+          return "NE";
+        case ge:
+          return "GE";
+        case gt:
+          return "GT";
+        case hs:
+          return "HS";
+        case hi:
+          return "HI";
+        default:
+          return "__";
+        }
+      }() << mnemonic_sep;
 
-      oss << mnemonic_sep;
-
-      (instr & operand_addr_loc_mask) ? output_immediate(oss, arg, words) : output_short_cond_jump_address(oss, instr);
+      (instr & operand_addr_loc_mask) ? output_immediate(oss, arg, words)
+                                      : output_short_cond_branch_address(oss, instr);
 
       return {words, std::move(oss).str()};
     }
 
+    /*
+     * Type traits specialized for each operation of the machine.
+     */
     template <optype Type, bool MemoryAccess = false>
     struct disassemble_traits;
 
@@ -313,19 +377,19 @@ namespace yarisc::arch
       }
     };
 
-    struct disassemble_traits_jump
+    struct disassemble_traits_branch
     {
       [[nodiscard]] static disassembly disassemble(std::string_view mnemonic, word_t instr, word_t arg)
       {
-        return check_jump(instr) ? convert_jump_operand(mnemonic, instr, arg) : invalid_bits_error(instr);
+        return check_branch(instr) ? convert_branch_operand(mnemonic, instr, arg) : invalid_bits_error(instr);
       }
     };
 
-    struct disassemble_traits_cond_jump
+    struct disassemble_traits_cond_branch
     {
       [[nodiscard]] static disassembly disassemble(std::string_view mnemonic, word_t instr, word_t arg)
       {
-        return check_cond_jump(instr) ? convert_cond_jump_operand(mnemonic, instr, arg) : invalid_bits_error(instr);
+        return check_cond_branch(instr) ? convert_cond_branch_operand(mnemonic, instr, arg) : invalid_bits_error(instr);
       }
     };
 
@@ -350,12 +414,12 @@ namespace yarisc::arch
     };
 
     template <>
-    struct disassemble_traits<optype::jump> : disassemble_traits_jump
+    struct disassemble_traits<optype::branch> : disassemble_traits_branch
     {
     };
 
     template <>
-    struct disassemble_traits<optype::cond_jump> : disassemble_traits_cond_jump
+    struct disassemble_traits<optype::cond_branch> : disassemble_traits_cond_branch
     {
     };
 
@@ -390,10 +454,10 @@ namespace yarisc::arch
         return disassemble_opcode<opcode::add, Profile>(instr, arg);
       case opcode::add_with_carry:
         return disassemble_opcode<opcode::add_with_carry, Profile>(instr, arg);
-      case opcode::jump:
-        return disassemble_opcode<opcode::jump, Profile>(instr, arg);
-      case opcode::cond_jump:
-        return disassemble_opcode<opcode::cond_jump, Profile>(instr, arg);
+      case opcode::branch:
+        return disassemble_opcode<opcode::branch, Profile>(instr, arg);
+      case opcode::cond_branch:
+        return disassemble_opcode<opcode::cond_branch, Profile>(instr, arg);
       case opcode::noop:
         return disassemble_opcode<opcode::noop, Profile>(instr, arg);
       case opcode::halt:

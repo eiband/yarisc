@@ -40,9 +40,9 @@ namespace yarisc::arch
       r2 = 0x2,
       r3 = 0x3,
       r4 = 0x4,
-      r5 = 0x5,
-      sp = 0x6,
-      ip = 0x7,
+      r5 = 0x5, // frame pointer
+      sp = 0x6, // stack pointer
+      ip = 0x7, // instruction pointer
     };
 
     inline constexpr regaddr r0 = regaddr::r0;
@@ -55,20 +55,37 @@ namespace yarisc::arch
     inline constexpr regaddr ip = regaddr::ip;
 
     /**
-     * @brief Jump condition of conditional jumps
+     * @brief Branch condition of conditional branch instructions
      */
-    enum class jump_condition : word_t
+    enum class branch_condition : word_t
     {
-      jc = operand_cond_flag_carry_mask,
-      jz = operand_cond_flag_zero_mask,
-      jnc = operand_cond_flag_carry_mask | operand_cond_neg_mask,
-      jnz = operand_cond_flag_zero_mask | operand_cond_neg_mask,
+      //     ┌---- invert condition
+      //     |┌--- C == 0
+      //     ||┌-- N != V
+      //     |||┌- Z == 1
+      //     vvvv
+      eq = 0b0001, // equal
+      lt = 0b0010, // less signed
+      le = 0b0011, // less or equal signed
+      lo = 0b0100, // less unsigned
+      ls = 0b0101, // less or equal unsigned
+      ne = 0b1001, // not equal
+      ge = 0b1010, // greater or equal signed
+      gt = 0b1011, // greater signed
+      hs = 0b1100, // greater or equal unsigned
+      hi = 0b1101, // greater unsigned
     };
 
-    inline constexpr jump_condition jc = jump_condition::jc;
-    inline constexpr jump_condition jz = jump_condition::jz;
-    inline constexpr jump_condition jnc = jump_condition::jnc;
-    inline constexpr jump_condition jnz = jump_condition::jnz;
+    inline constexpr branch_condition eq = branch_condition::eq;
+    inline constexpr branch_condition lt = branch_condition::lt;
+    inline constexpr branch_condition le = branch_condition::le;
+    inline constexpr branch_condition lo = branch_condition::lo;
+    inline constexpr branch_condition ls = branch_condition::ls;
+    inline constexpr branch_condition ne = branch_condition::ne;
+    inline constexpr branch_condition ge = branch_condition::ge;
+    inline constexpr branch_condition gt = branch_condition::gt;
+    inline constexpr branch_condition hs = branch_condition::hs;
+    inline constexpr branch_condition hi = branch_condition::hi;
 
     /**
      * @brief Placeholder type for the register passed as first operand
@@ -189,14 +206,14 @@ namespace yarisc::arch
     using short_immediate = checked_immediate<0x7, 0x8>;
 
     /**
-     * @brief Short immediate jump address that can be stored in the instruction word
+     * @brief Short immediate branch address that can be stored in the instruction word
      */
-    using short_jump_address = checked_immediate<0x01fe, 0x0200>;
+    using short_branch_address = checked_immediate<0x01fe, 0x0200>;
 
     /**
-     * @brief Short immediate conditional jump address that can be stored in the instruction word
+     * @brief Short immediate conditional branch address that can be stored in the instruction word
      */
-    using short_cond_jump_address = checked_immediate<0x1e, 0x20>;
+    using short_cond_branch_address = checked_immediate<0x1e, 0x20>;
 
   } // namespace assembly
 
@@ -229,27 +246,27 @@ namespace yarisc::arch
   concept binary_operand = unary_operand<T> || detail::assemble_value<T, assembly::accumulator_t>;
 
   /**
-   * @brief Short immediate jump address operand
+   * @brief Short immediate branch address operand
    */
   template <typename T>
-  concept jump_operand = detail::indirect_immediate<T> || detail::assemble_value<T, assembly::short_jump_address>;
+  concept branch_operand = detail::indirect_immediate<T> || detail::assemble_value<T, assembly::short_branch_address>;
 
   /**
-   * @brief Short immediate conditional jump address operand
+   * @brief Short immediate conditional branch address operand
    */
   template <typename T>
-  concept cond_jump_operand =
-    detail::indirect_immediate<T> || detail::assemble_value<T, assembly::short_cond_jump_address>;
+  concept cond_branch_operand =
+    detail::indirect_immediate<T> || detail::assemble_value<T, assembly::short_cond_branch_address>;
 
   namespace detail
   {
     using assembly::accumulator_t;
+    using assembly::branch_condition;
     using assembly::immediate_t;
-    using assembly::jump_condition;
     using assembly::regaddr;
-    using assembly::short_cond_jump_address;
+    using assembly::short_branch_address;
+    using assembly::short_cond_branch_address;
     using assembly::short_immediate;
-    using assembly::short_jump_address;
 
     [[nodiscard]] inline word_t make_op0(regaddr addr) noexcept
     {
@@ -271,19 +288,19 @@ namespace yarisc::arch
       return (imm.get() << operand_st_offset) & operand_st_mask;
     }
 
-    [[nodiscard]] inline word_t make_immediate(short_jump_address address) noexcept
+    [[nodiscard]] inline word_t make_immediate(short_branch_address address) noexcept
     {
       return (address.get() << operand_addr_offset) & operand_addr_mask;
     }
 
-    [[nodiscard]] inline word_t make_immediate(short_cond_jump_address address) noexcept
+    [[nodiscard]] inline word_t make_immediate(short_cond_branch_address address) noexcept
     {
       return (address.get() << operand_cond_addr_offset) & operand_cond_addr_mask;
     }
 
-    [[nodiscard]] inline word_t make_condition(jump_condition cond) noexcept
+    [[nodiscard]] inline word_t make_condition(branch_condition cond) noexcept
     {
-      return static_cast<word_t>(cond) & (operand_cond_neg_mask | operand_cond_flag_mask);
+      return (static_cast<word_t>(cond) << operand_cond_code_offset) & operand_cond_code_mask;
     }
 
     [[nodiscard]] inline word_t make_operands(regaddr op0) noexcept
@@ -331,22 +348,22 @@ namespace yarisc::arch
       return make_op0(op0) | make_immediate(op2) | operand_as_mask | operand_sel_mask;
     }
 
-    [[nodiscard]] inline word_t make_jump_operands(immediate_t) noexcept
+    [[nodiscard]] inline word_t make_branch_operands(immediate_t) noexcept
     {
       return operand_addr_loc_mask;
     }
 
-    [[nodiscard]] inline word_t make_jump_operands(short_jump_address address) noexcept
+    [[nodiscard]] inline word_t make_branch_operands(short_branch_address address) noexcept
     {
       return make_immediate(address);
     }
 
-    [[nodiscard]] inline word_t make_jump_operands(jump_condition cond, immediate_t) noexcept
+    [[nodiscard]] inline word_t make_branch_operands(branch_condition cond, immediate_t) noexcept
     {
       return make_condition(cond) | operand_addr_loc_mask;
     }
 
-    [[nodiscard]] inline word_t make_jump_operands(jump_condition cond, short_cond_jump_address address) noexcept
+    [[nodiscard]] inline word_t make_branch_operands(branch_condition cond, short_cond_branch_address address) noexcept
     {
       return make_condition(cond) | make_immediate(address);
     }
@@ -396,24 +413,24 @@ namespace yarisc::arch
   }
 
   /**
-   * @brief Assembles a jump instruction
+   * @brief Assembles a branch instruction
    */
   template <opcode Code, feature_level Level = feature_level_latest>
-    requires opcode_of_type<Code, optype::jump, machine_profile<Level>>
-  [[nodiscard]] auto assemble(jump_operand auto address) noexcept -> decltype(detail::make_jump_operands(address))
+    requires opcode_of_type<Code, optype::branch, machine_profile<Level>>
+  [[nodiscard]] auto assemble(branch_operand auto address) noexcept -> decltype(detail::make_branch_operands(address))
   {
-    return static_cast<word_t>(Code) | detail::make_jump_operands(address);
+    return static_cast<word_t>(Code) | detail::make_branch_operands(address);
   }
 
   /**
-   * @brief Assembles a jump instruction
+   * @brief Assembles a branch instruction
    */
   template <opcode Code, feature_level Level = feature_level_latest>
-    requires opcode_of_type<Code, optype::cond_jump, machine_profile<Level>>
-  [[nodiscard]] auto assemble(assembly::jump_condition cond, cond_jump_operand auto address) noexcept
-    -> decltype(detail::make_jump_operands(cond, address))
+    requires opcode_of_type<Code, optype::cond_branch, machine_profile<Level>>
+  [[nodiscard]] auto assemble(assembly::branch_condition cond, cond_branch_operand auto address) noexcept
+    -> decltype(detail::make_branch_operands(cond, address))
   {
-    return static_cast<word_t>(Code) | detail::make_jump_operands(cond, address);
+    return static_cast<word_t>(Code) | detail::make_branch_operands(cond, address);
   }
 
   /**

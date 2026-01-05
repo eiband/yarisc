@@ -24,14 +24,24 @@ namespace yarisc::arch::detail
     return (status & flag) ? ch : '0';
   }
 
-  [[nodiscard]] inline char carry_bit(word_t status) noexcept
+  [[nodiscard]] inline char negative_bit(word_t status) noexcept
   {
-    return named_bit(status, status_register::carry_flag, 'C');
+    return named_bit(status, status_register::negative_flag, 'N');
   }
 
   [[nodiscard]] inline char zero_bit(word_t status) noexcept
   {
     return named_bit(status, status_register::zero_flag, 'Z');
+  }
+
+  [[nodiscard]] inline char carry_bit(word_t status) noexcept
+  {
+    return named_bit(status, status_register::carry_flag, 'C');
+  }
+
+  [[nodiscard]] inline char overflow_bit(word_t status) noexcept
+  {
+    return named_bit(status, status_register::overflow_flag, 'V');
   }
 
   class status_bits_t : public bind_output_fn<status_bits_t, word_t>
@@ -53,12 +63,15 @@ namespace yarisc::arch::detail
 
       if (status & ~status_register::mask)
       {
+        // Display all bits of the status register
         std::string status_bits = std::bitset<bits>{status}.to_string();
 
         if (status_bits.size() == bits)
         {
-          status_bits[bits - status_register::carry_pos - 1] = carry_bit(status);
-          status_bits[bits - status_register::zero_pos - 1] = zero_bit(status);
+          status_bits[bits - status_register::negative_pos - 1] = negative_bit(status); // N
+          status_bits[bits - status_register::zero_pos - 1] = zero_bit(status);         // Z
+          status_bits[bits - status_register::carry_pos - 1] = carry_bit(status);       // C
+          status_bits[bits - status_register::overflow_pos - 1] = overflow_bit(status); // V
         }
 
         os << "status: "sv;
@@ -66,8 +79,14 @@ namespace yarisc::arch::detail
       }
       else
       {
-        os << "                status: "sv;
-        os << utils::color::bright_white(ctx) << zero_bit(status) << carry_bit(status) << utils::color::reset(ctx);
+        // Display only the known bits of the status register
+        os << "              status: "sv;
+        os << utils::color::bright_white(ctx) //
+           << negative_bit(status)            // N
+           << zero_bit(status)                // Z
+           << carry_bit(status)               // C
+           << overflow_bit(status)            // V
+           << utils::color::reset(ctx);
       }
     }
   };

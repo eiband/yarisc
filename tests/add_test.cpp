@@ -32,7 +32,7 @@ SCENARIO("execute the ADD instruction", "[instruction]")
       current.set_r0(0xfefe);
       current.set_r1(0x094b);
       current.set_r2(0x106c);
-      current.set_status(yarisc::test::status_zc);
+      current.set_status(yarisc::test::status_nzcv);
 
       AND_WHEN("the instruction is executed")
       {
@@ -82,11 +82,12 @@ SCENARIO("execute the ADD instruction", "[instruction]")
       {
         yarisc::test::machine expected = current;
         expected.set_r0(0xffff);
+        expected.set_status(yarisc::test::status_n);
         expected.advance_ip();
 
         REQUIRE(current.execute_instruction());
 
-        THEN("register `r0` shall have the value `0xffff`")
+        THEN("register `r0` shall have the value `0xffff` and the negative flag shall be set")
         {
           CHECK(current == expected);
         }
@@ -108,7 +109,7 @@ SCENARIO("execute the ADD instruction", "[instruction]")
 
         REQUIRE(current.execute_instruction());
 
-        THEN("register `r0` shall have the value `0x0000` and the carry and zero flags shall be set")
+        THEN("register `r0` shall have the value `0x0000` and the zero and carry flags shall be set")
         {
           CHECK(current == expected);
         }
@@ -125,12 +126,56 @@ SCENARIO("execute the ADD instruction", "[instruction]")
       {
         yarisc::test::machine expected = current;
         expected.set_r0(0xebc2);
-        expected.set_status(yarisc::test::status_c);
+        expected.set_status(yarisc::test::status_nc);
         expected.advance_ip();
 
         REQUIRE(current.execute_instruction());
 
-        THEN("register `r0` shall have the value `0xebc2` and the carry flag shall be set")
+        THEN("register `r0` shall have the value `0xebc2` and the negative and carry flags shall be set")
+        {
+          CHECK(current == expected);
+        }
+      }
+    }
+
+    WHEN("register `r0` has value `0xfefe`, `r1` has value `0x6000`, and `r2` has value `0x7000`")
+    {
+      current.set_r0(0xfefe);
+      current.set_r1(0x6000);
+      current.set_r2(0x7000);
+
+      AND_WHEN("the instruction is executed")
+      {
+        yarisc::test::machine expected = current;
+        expected.set_r0(0xd000);
+        expected.set_status(yarisc::test::status_nv);
+        expected.advance_ip();
+
+        REQUIRE(current.execute_instruction());
+
+        THEN("register `r0` shall have the value `0xd000` and the negative and overflow flags shall be set")
+        {
+          CHECK(current == expected);
+        }
+      }
+    }
+
+    WHEN("register `r0` has value `0xfefe`, `r1` has value `0x9000`, and `r2` has value `0xa000`")
+    {
+      current.set_r0(0xfefe);
+      current.set_r1(0x9000);
+      current.set_r2(0xa000);
+
+      AND_WHEN("the instruction is executed")
+      {
+        yarisc::test::machine expected = current;
+        expected.set_r0(0x3000);
+        expected.set_status(yarisc::test::status_cv);
+        expected.advance_ip();
+
+        REQUIRE(current.execute_instruction());
+
+        THEN("register `r0` shall have the value `0x3000` and the carry and overflow flags shall be set")
         {
           CHECK(current == expected);
         }
@@ -374,7 +419,7 @@ SCENARIO("execute the ADC instruction", "[instruction]")
       current.set_r0(0xfefe);
       current.set_r1(0x094b);
       current.set_r2(0x106c);
-      current.set_status(yarisc::test::status_zc);
+      current.set_status(yarisc::test::status_nzcv);
 
       AND_WHEN("the instruction is executed")
       {
@@ -403,11 +448,12 @@ SCENARIO("execute the ADC instruction", "[instruction]")
       {
         yarisc::test::machine expected = current;
         expected.set_r0(0xffff);
+        expected.set_status(yarisc::test::status_nc);
         expected.advance_ip();
 
         REQUIRE(current.execute_instruction());
 
-        THEN("register `r0` shall have the value `0xffff` and the carry flag shall be set")
+        THEN("register `r0` shall have the value `0xffff` and the negative and carry flags shall be set")
         {
           CHECK(current == expected);
         }
@@ -447,12 +493,12 @@ SCENARIO("execute the ADC instruction", "[instruction]")
       {
         yarisc::test::machine expected = current;
         expected.set_r0(0xffff);
-        expected.clear_status();
+        expected.set_status(yarisc::test::status_n);
         expected.advance_ip();
 
         REQUIRE(current.execute_instruction());
 
-        THEN("register `r0` shall have the value `0xffff` and the carry flag shall be reset")
+        THEN("register `r0` shall have the value `0xffff` and the negative flag shall be reset")
         {
           CHECK(current == expected);
         }
@@ -475,7 +521,7 @@ SCENARIO("execute the ADC instruction", "[instruction]")
 
         REQUIRE(current.execute_instruction());
 
-        THEN("register `r0` shall have the value `0x0000` and the carry and zero flags shall be set")
+        THEN("register `r0` shall have the value `0x0000` and the zero and carry flags shall be set")
         {
           CHECK(current == expected);
         }
@@ -492,12 +538,57 @@ SCENARIO("execute the ADC instruction", "[instruction]")
       {
         yarisc::test::machine expected = current;
         expected.set_r0(0xebc2);
-        expected.set_status(yarisc::test::status_c);
+        expected.set_status(yarisc::test::status_nc);
         expected.advance_ip();
 
         REQUIRE(current.execute_instruction());
 
-        THEN("register `r0` shall have the value `0xebc2` and the carry flag shall be set")
+        THEN("register `r0` shall have the value `0xebc2` and the negative and carry flags shall be set")
+        {
+          CHECK(current == expected);
+        }
+      }
+    }
+
+    WHEN("register `r0` has value `0xfefe`, `r1` has value `0x6000`, and `r2` has value `0x7000`")
+    {
+      current.set_r0(0xfefe);
+      current.set_r1(0x6000);
+      current.set_r2(0x7000);
+
+      AND_WHEN("the instruction is executed")
+      {
+        yarisc::test::machine expected = current;
+        expected.set_r0(0xd000);
+        expected.set_status(yarisc::test::status_nv);
+        expected.advance_ip();
+
+        REQUIRE(current.execute_instruction());
+
+        THEN("register `r0` shall have the value `0xd000` and the negative and overflow flags shall be set")
+        {
+          CHECK(current == expected);
+        }
+      }
+    }
+
+    WHEN("register `r0` has value `0xfefe`, `r1` has value `0x4000`, `r2` has value `0x3fff`, and the carry flag set")
+    {
+      current.set_r0(0xfefe);
+      current.set_r1(0x4000);
+      current.set_r2(0x3fff);
+      current.set_status(yarisc::test::status_c);
+
+      AND_WHEN("the instruction is executed")
+      {
+        yarisc::test::machine expected = current;
+        expected.set_r0(0x8000);
+        expected.set_status(yarisc::test::status_nv);
+        expected.advance_ip();
+
+        REQUIRE(current.execute_instruction());
+
+        THEN("register `r0` shall have the value `0x8000` and the negative and overflow flags shall be set")
         {
           CHECK(current == expected);
         }
@@ -522,7 +613,7 @@ SCENARIO("execute the ADC instruction", "[instruction]")
     WHEN("register `r1` has value `0x1234` and the status flags set")
     {
       current.set_r1(0x1234);
-      current.set_status(yarisc::test::status_zc);
+      current.set_status(yarisc::test::status_nzcv);
 
       AND_WHEN("the instruction is executed")
       {
@@ -559,7 +650,7 @@ SCENARIO("execute the ADC instruction", "[instruction]")
     WHEN("register `r5` has value `0x1001` and the status flags set")
     {
       current.set_r5(0x1001);
-      current.set_status(yarisc::test::status_zc);
+      current.set_status(yarisc::test::status_nzcv);
 
       AND_WHEN("the instruction is executed")
       {
@@ -669,7 +760,7 @@ SCENARIO("execute the ADC instruction", "[instruction]")
     {
       current.set_r0(0x1050);
       current.set_r3(0xfefe);
-      current.set_status(yarisc::test::status_zc);
+      current.set_status(yarisc::test::status_nzcv);
 
       AND_WHEN("the instruction is executed")
       {

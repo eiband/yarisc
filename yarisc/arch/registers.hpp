@@ -121,24 +121,76 @@ namespace yarisc::arch
    */
   struct status_register final
   {
-    static constexpr unsigned int carry_pos = 0;
+    static constexpr unsigned int negative_pos = 0;
     static constexpr unsigned int zero_pos = 1;
+    static constexpr unsigned int carry_pos = 2;
+    static constexpr unsigned int overflow_pos = 3;
 
-    static constexpr word_t carry_flag = 0x1 << carry_pos;
+    static constexpr word_t negative_flag = 0x1 << negative_pos;
     static constexpr word_t zero_flag = 0x1 << zero_pos;
+    static constexpr word_t carry_flag = 0x1 << carry_pos;
+    static constexpr word_t overflow_flag = 0x1 << overflow_pos;
 
-    static constexpr word_t mask = carry_flag | zero_flag;
+    static constexpr word_t mask = negative_flag | zero_flag | carry_flag | overflow_flag;
 
     word_t s{0};
+
+    [[nodiscard]] bool negative() const noexcept
+    {
+      return ((s & negative_flag) != 0);
+    }
+
+    [[nodiscard]] bool zero() const noexcept
+    {
+      return ((s & zero_flag) != 0);
+    }
 
     [[nodiscard]] bool carry() const noexcept
     {
       return ((s & carry_flag) != 0);
     }
 
-    [[nodiscard]] bool zero() const noexcept
+    [[nodiscard]] bool overflow() const noexcept
     {
-      return ((s & zero_flag) != 0);
+      return ((s & overflow_flag) != 0);
+    }
+
+    [[nodiscard]] bool less() const noexcept
+    {
+      static_assert(negative_pos == 0);
+
+      // Shift the overflow flag down to the least significant bit and compare it with the negative flag
+      return (((s & overflow_flag) >> overflow_pos) != (s & negative_flag));
+    }
+
+    void set_negative() noexcept
+    {
+      s |= negative_flag;
+    }
+
+    void set_negative(bool c) noexcept
+    {
+      s = c ? (s | negative_flag) : (s & ~negative_flag);
+    }
+
+    void unset_negative() noexcept
+    {
+      s &= ~negative_flag;
+    }
+
+    void set_zero() noexcept
+    {
+      s |= zero_flag;
+    }
+
+    void set_zero(bool c) noexcept
+    {
+      s = c ? (s | zero_flag) : (s & ~zero_flag);
+    }
+
+    void unset_zero() noexcept
+    {
+      s &= ~zero_flag;
     }
 
     void set_carry() noexcept
@@ -156,19 +208,19 @@ namespace yarisc::arch
       s &= ~carry_flag;
     }
 
-    void set_zero() noexcept
+    void set_overflow() noexcept
     {
-      s |= zero_flag;
+      s |= overflow_flag;
     }
 
-    void set_zero(bool c) noexcept
+    void set_overflow(bool c) noexcept
     {
-      s = c ? (s | zero_flag) : (s & ~zero_flag);
+      s = c ? (s | overflow_flag) : (s & ~overflow_flag);
     }
 
-    void unset_zero() noexcept
+    void unset_overflow() noexcept
     {
-      s &= ~zero_flag;
+      s &= ~overflow_flag;
     }
 
     [[nodiscard]] bool operator==(const status_register& that) const noexcept = default;

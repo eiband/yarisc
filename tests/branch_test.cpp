@@ -9,13 +9,13 @@
 
 #include <string>
 
-SCENARIO("execute the JMP instruction", "[instruction]")
+SCENARIO("execute the BRA instruction", "[instruction]")
 {
   using namespace yarisc::arch::assembly;
 
-  GIVEN("a test machine with a JMP to absolute short address `0x01fc` instruction")
+  GIVEN("a test machine with a BRA to absolute short address `0x01fc` instruction")
   {
-    yarisc::test::machine current{yarisc::arch::assemble<opcode::jump>(short_jump_address{0x01fc})};
+    yarisc::test::machine current{yarisc::arch::assemble<opcode::branch>(short_branch_address{0x01fc})};
 
     WHEN("the instruction is disassembled")
     {
@@ -23,7 +23,7 @@ SCENARIO("execute the JMP instruction", "[instruction]")
 
       THEN("the result shall be the expected text")
       {
-        CHECK(text == "JMP 0x01fc");
+        CHECK(text == "BRA 0x01fc");
       }
     }
 
@@ -78,7 +78,7 @@ SCENARIO("execute the JMP instruction", "[instruction]")
 
     WHEN("the status flags are set")
     {
-      current.set_status(yarisc::test::status_zc);
+      current.set_status(yarisc::test::status_nzcv);
 
       AND_WHEN("the instruction is executed")
       {
@@ -95,9 +95,9 @@ SCENARIO("execute the JMP instruction", "[instruction]")
     }
   }
 
-  GIVEN("a test machine with a JMP to absolute short address `0xffe0` instruction")
+  GIVEN("a test machine with a BRA to absolute short address `0xffe0` instruction")
   {
-    yarisc::test::machine current{yarisc::arch::assemble<opcode::jump>(short_jump_address{0xffe0})};
+    yarisc::test::machine current{yarisc::arch::assemble<opcode::branch>(short_branch_address{0xffe0})};
 
     WHEN("the instruction is disassembled")
     {
@@ -105,7 +105,7 @@ SCENARIO("execute the JMP instruction", "[instruction]")
 
       THEN("the result shall be the expected text")
       {
-        CHECK(text == "JMP 0xffe0");
+        CHECK(text == "BRA 0xffe0");
       }
     }
 
@@ -123,9 +123,9 @@ SCENARIO("execute the JMP instruction", "[instruction]")
     }
   }
 
-  GIVEN("a test machine with a JMP to absolute address `0x6124` instruction")
+  GIVEN("a test machine with a BRA to absolute address `0x6124` instruction")
   {
-    yarisc::test::machine current{yarisc::arch::assemble<opcode::jump>(immediate), 0x6124};
+    yarisc::test::machine current{yarisc::arch::assemble<opcode::branch>(immediate), 0x6124};
 
     WHEN("the instruction is disassembled")
     {
@@ -133,7 +133,7 @@ SCENARIO("execute the JMP instruction", "[instruction]")
 
       THEN("the result shall be the expected text")
       {
-        CHECK(text == "JMP 0x6124");
+        CHECK(text == "BRA 0x6124");
       }
     }
 
@@ -188,7 +188,7 @@ SCENARIO("execute the JMP instruction", "[instruction]")
 
     WHEN("the status flags are set")
     {
-      current.set_status(yarisc::test::status_zc);
+      current.set_status(yarisc::test::status_nzcv);
 
       AND_WHEN("the instruction is executed")
       {
@@ -206,13 +206,13 @@ SCENARIO("execute the JMP instruction", "[instruction]")
   }
 }
 
-SCENARIO("execute the JMC instruction", "[instruction]")
+SCENARIO("execute the BEQ instruction", "[instruction]")
 {
   using namespace yarisc::arch::assembly;
 
-  GIVEN("a test machine with a JMC to absolute short address `0x1a` instruction")
+  GIVEN("a test machine with a BEQ to absolute short address `0x1a` instruction")
   {
-    yarisc::test::machine current{yarisc::arch::assemble<opcode::cond_jump>(jc, short_cond_jump_address{0x1a})};
+    yarisc::test::machine current{yarisc::arch::assemble<opcode::cond_branch>(eq, short_cond_branch_address{0x1a})};
 
     WHEN("the instruction is disassembled")
     {
@@ -220,7 +220,7 @@ SCENARIO("execute the JMC instruction", "[instruction]")
 
       THEN("the result shall be the expected text")
       {
-        CHECK(text == "JMC 0x001a");
+        CHECK(text == "BEQ 0x001a");
       }
     }
 
@@ -237,9 +237,9 @@ SCENARIO("execute the JMC instruction", "[instruction]")
       }
     }
 
-    WHEN("the carry flag is set")
+    WHEN("the zero flag is set")
     {
-      current.set_status(yarisc::test::status_c);
+      current.set_status(yarisc::test::status_z);
 
       AND_WHEN("the instruction is executed")
       {
@@ -255,9 +255,9 @@ SCENARIO("execute the JMC instruction", "[instruction]")
       }
     }
 
-    WHEN("the zero flag is set")
+    WHEN("the carry flag is set")
     {
-      current.set_status(yarisc::test::status_z);
+      current.set_status(yarisc::test::status_c);
 
       AND_WHEN("the instruction is executed")
       {
@@ -275,7 +275,7 @@ SCENARIO("execute the JMC instruction", "[instruction]")
 
     WHEN("the status flags are set")
     {
-      current.set_status(yarisc::test::status_zc);
+      current.set_status(yarisc::test::status_nzcv);
 
       AND_WHEN("the instruction is executed")
       {
@@ -292,9 +292,9 @@ SCENARIO("execute the JMC instruction", "[instruction]")
     }
   }
 
-  GIVEN("a test machine with a JMC to absolute short address `0xffe0` instruction")
+  GIVEN("a test machine with a BEQ to absolute short address `0xffe0` instruction")
   {
-    yarisc::test::machine current{yarisc::arch::assemble<opcode::cond_jump>(jc, short_cond_jump_address{0xffe0})};
+    yarisc::test::machine current{yarisc::arch::assemble<opcode::cond_branch>(eq, short_cond_branch_address{0xffe0})};
 
     WHEN("the instruction is disassembled")
     {
@@ -302,13 +302,13 @@ SCENARIO("execute the JMC instruction", "[instruction]")
 
       THEN("the result shall be the expected text")
       {
-        CHECK(text == "JMC 0xffe0");
+        CHECK(text == "BEQ 0xffe0");
       }
     }
 
-    WHEN("the carry flag is set")
+    WHEN("the zero flag is set")
     {
-      current.set_status(yarisc::test::status_c);
+      current.set_status(yarisc::test::status_z);
 
       AND_WHEN("the instruction is executed")
       {
@@ -325,9 +325,9 @@ SCENARIO("execute the JMC instruction", "[instruction]")
     }
   }
 
-  GIVEN("a test machine with a JMC to absolute address `0x1ff0` instruction")
+  GIVEN("a test machine with a BEQ to absolute address `0x1ff0` instruction")
   {
-    yarisc::test::machine current{yarisc::arch::assemble<opcode::cond_jump>(jc, immediate), 0x1ff0};
+    yarisc::test::machine current{yarisc::arch::assemble<opcode::cond_branch>(eq, immediate), 0x1ff0};
 
     WHEN("the instruction is disassembled")
     {
@@ -335,7 +335,7 @@ SCENARIO("execute the JMC instruction", "[instruction]")
 
       THEN("the result shall be the expected text")
       {
-        CHECK(text == "JMC 0x1ff0");
+        CHECK(text == "BEQ 0x1ff0");
       }
     }
 
@@ -352,9 +352,9 @@ SCENARIO("execute the JMC instruction", "[instruction]")
       }
     }
 
-    WHEN("the carry flag is set")
+    WHEN("the zero flag is set")
     {
-      current.set_status(yarisc::test::status_c);
+      current.set_status(yarisc::test::status_z);
 
       AND_WHEN("the instruction is executed")
       {
@@ -370,9 +370,9 @@ SCENARIO("execute the JMC instruction", "[instruction]")
       }
     }
 
-    WHEN("the zero flag is set")
+    WHEN("the carry flag is set")
     {
-      current.set_status(yarisc::test::status_z);
+      current.set_status(yarisc::test::status_c);
 
       AND_WHEN("the instruction is executed")
       {
@@ -390,7 +390,7 @@ SCENARIO("execute the JMC instruction", "[instruction]")
 
     WHEN("the status flags are set")
     {
-      current.set_status(yarisc::test::status_zc);
+      current.set_status(yarisc::test::status_nzcv);
 
       AND_WHEN("the instruction is executed")
       {
@@ -408,128 +408,13 @@ SCENARIO("execute the JMC instruction", "[instruction]")
   }
 }
 
-SCENARIO("execute the JNC instruction", "[instruction]")
+SCENARIO("execute the BLT instruction", "[instruction]")
 {
   using namespace yarisc::arch::assembly;
 
-  GIVEN("a test machine with a JNC to absolute short address `0x1a` instruction")
+  GIVEN("a test machine with a BLT to absolute address `0x1ff0` instruction")
   {
-    yarisc::test::machine current{yarisc::arch::assemble<opcode::cond_jump>(jnc, short_cond_jump_address{0x1a})};
-
-    WHEN("the instruction is disassembled")
-    {
-      const std::string text = current.disassemble_instruction();
-
-      THEN("the result shall be the expected text")
-      {
-        CHECK(text == "JNC 0x001a");
-      }
-    }
-
-    WHEN("the instruction is executed")
-    {
-      yarisc::test::machine expected = current;
-      expected.set_ip(0x1a);
-
-      REQUIRE(current.execute_instruction());
-
-      THEN("the instruction pointer shall have the value `0x1a`")
-      {
-        CHECK(current == expected);
-      }
-    }
-
-    WHEN("the carry flag is set")
-    {
-      current.set_status(yarisc::test::status_c);
-
-      AND_WHEN("the instruction is executed")
-      {
-        yarisc::test::machine expected = current;
-        expected.advance_ip();
-
-        REQUIRE(current.execute_instruction());
-
-        THEN("the instruction pointer shall point to the next instruction")
-        {
-          CHECK(current == expected);
-        }
-      }
-    }
-
-    WHEN("the zero flag is set")
-    {
-      current.set_status(yarisc::test::status_z);
-
-      AND_WHEN("the instruction is executed")
-      {
-        yarisc::test::machine expected = current;
-        expected.set_ip(0x1a);
-
-        REQUIRE(current.execute_instruction());
-
-        THEN("the instruction pointer shall have the value `0x1a`")
-        {
-          CHECK(current == expected);
-        }
-      }
-    }
-
-    WHEN("the status flags are set")
-    {
-      current.set_status(yarisc::test::status_zc);
-
-      AND_WHEN("the instruction is executed")
-      {
-        yarisc::test::machine expected = current;
-        expected.advance_ip();
-
-        REQUIRE(current.execute_instruction());
-
-        THEN("the instruction pointer shall point to the next instruction")
-        {
-          CHECK(current == expected);
-        }
-      }
-    }
-  }
-
-  GIVEN("a test machine with a JNC to absolute short address `0xffe0` instruction")
-  {
-    yarisc::test::machine current{yarisc::arch::assemble<opcode::cond_jump>(jnc, short_cond_jump_address{0xffe0})};
-
-    WHEN("the instruction is disassembled")
-    {
-      const std::string text = current.disassemble_instruction();
-
-      THEN("the result shall be the expected text")
-      {
-        CHECK(text == "JNC 0xffe0");
-      }
-    }
-
-    WHEN("the zero flag is set")
-    {
-      current.set_status(yarisc::test::status_z);
-
-      AND_WHEN("the instruction is executed")
-      {
-        yarisc::test::machine expected = current;
-        expected.set_ip(0xffe0);
-
-        REQUIRE(current.execute_instruction());
-
-        THEN("the instruction pointer shall have the value `0xffe0`")
-        {
-          CHECK(current == expected);
-        }
-      }
-    }
-  }
-
-  GIVEN("a test machine with a JNC to absolute address `0x1ff0` instruction")
-  {
-    yarisc::test::machine current{yarisc::arch::assemble<opcode::cond_jump>(jnc, immediate), 0x1ff0};
+    yarisc::test::machine current{yarisc::arch::assemble<opcode::cond_branch>(lt, immediate), 0x1ff0};
 
     WHEN("the instruction is disassembled")
     {
@@ -537,209 +422,7 @@ SCENARIO("execute the JNC instruction", "[instruction]")
 
       THEN("the result shall be the expected text")
       {
-        CHECK(text == "JNC 0x1ff0");
-      }
-    }
-
-    WHEN("the instruction is executed")
-    {
-      yarisc::test::machine expected = current;
-      expected.set_ip(0x1ff0);
-
-      REQUIRE(current.execute_instruction());
-
-      THEN("the instruction pointer shall have the value `0x1ff0`")
-      {
-        CHECK(current == expected);
-      }
-    }
-
-    WHEN("the carry flag is set")
-    {
-      current.set_status(yarisc::test::status_c);
-
-      AND_WHEN("the instruction is executed")
-      {
-        yarisc::test::machine expected = current;
-        expected.advance_ip(2);
-
-        REQUIRE(current.execute_instruction());
-
-        THEN("the instruction pointer shall point to the next instruction")
-        {
-          CHECK(current == expected);
-        }
-      }
-    }
-
-    WHEN("the zero flag is set")
-    {
-      current.set_status(yarisc::test::status_z);
-
-      AND_WHEN("the instruction is executed")
-      {
-        yarisc::test::machine expected = current;
-        expected.set_ip(0x1ff0);
-
-        REQUIRE(current.execute_instruction());
-
-        THEN("the instruction pointer shall have the value `0x1ff0`")
-        {
-          CHECK(current == expected);
-        }
-      }
-    }
-
-    WHEN("the status flags are set")
-    {
-      current.set_status(yarisc::test::status_zc);
-
-      AND_WHEN("the instruction is executed")
-      {
-        yarisc::test::machine expected = current;
-        expected.advance_ip(2);
-
-        REQUIRE(current.execute_instruction());
-
-        THEN("the instruction pointer shall point to the next instruction")
-        {
-          CHECK(current == expected);
-        }
-      }
-    }
-  }
-}
-
-SCENARIO("execute the JMZ instruction", "[instruction]")
-{
-  using namespace yarisc::arch::assembly;
-
-  GIVEN("a test machine with a JMZ to absolute short address `0x1a` instruction")
-  {
-    yarisc::test::machine current{yarisc::arch::assemble<opcode::cond_jump>(jz, short_cond_jump_address{0x1a})};
-
-    WHEN("the instruction is disassembled")
-    {
-      const std::string text = current.disassemble_instruction();
-
-      THEN("the result shall be the expected text")
-      {
-        CHECK(text == "JMZ 0x001a");
-      }
-    }
-
-    WHEN("the instruction is executed")
-    {
-      yarisc::test::machine expected = current;
-      expected.advance_ip();
-
-      REQUIRE(current.execute_instruction());
-
-      THEN("the instruction pointer shall point to the next instruction")
-      {
-        CHECK(current == expected);
-      }
-    }
-
-    WHEN("the carry flag is set")
-    {
-      current.set_status(yarisc::test::status_c);
-
-      AND_WHEN("the instruction is executed")
-      {
-        yarisc::test::machine expected = current;
-        expected.advance_ip();
-
-        REQUIRE(current.execute_instruction());
-
-        THEN("the instruction pointer shall point to the next instruction")
-        {
-          CHECK(current == expected);
-        }
-      }
-    }
-
-    WHEN("the zero flag is set")
-    {
-      current.set_status(yarisc::test::status_z);
-
-      AND_WHEN("the instruction is executed")
-      {
-        yarisc::test::machine expected = current;
-        expected.set_ip(0x1a);
-
-        REQUIRE(current.execute_instruction());
-
-        THEN("the instruction pointer shall have the value `0x1a`")
-        {
-          CHECK(current == expected);
-        }
-      }
-    }
-
-    WHEN("the status flags are set")
-    {
-      current.set_status(yarisc::test::status_zc);
-
-      AND_WHEN("the instruction is executed")
-      {
-        yarisc::test::machine expected = current;
-        expected.set_ip(0x1a);
-
-        REQUIRE(current.execute_instruction());
-
-        THEN("the instruction pointer shall have the value `0x1a`")
-        {
-          CHECK(current == expected);
-        }
-      }
-    }
-  }
-
-  GIVEN("a test machine with a JMZ to absolute short address `0xffe0` instruction")
-  {
-    yarisc::test::machine current{yarisc::arch::assemble<opcode::cond_jump>(jz, short_cond_jump_address{0xffe0})};
-
-    WHEN("the instruction is disassembled")
-    {
-      const std::string text = current.disassemble_instruction();
-
-      THEN("the result shall be the expected text")
-      {
-        CHECK(text == "JMZ 0xffe0");
-      }
-    }
-
-    WHEN("the zero flag is set")
-    {
-      current.set_status(yarisc::test::status_z);
-
-      AND_WHEN("the instruction is executed")
-      {
-        yarisc::test::machine expected = current;
-        expected.set_ip(0xffe0);
-
-        REQUIRE(current.execute_instruction());
-
-        THEN("the instruction pointer shall have the value `0xffe0`")
-        {
-          CHECK(current == expected);
-        }
-      }
-    }
-  }
-
-  GIVEN("a test machine with a JMZ to absolute address `0x1ff0` instruction")
-  {
-    yarisc::test::machine current{yarisc::arch::assemble<opcode::cond_jump>(jz, immediate), 0x1ff0};
-
-    WHEN("the instruction is disassembled")
-    {
-      const std::string text = current.disassemble_instruction(2);
-
-      THEN("the result shall be the expected text")
-      {
-        CHECK(text == "JMZ 0x1ff0");
+        CHECK(text == "BLT 0x1ff0");
       }
     }
 
@@ -756,9 +439,45 @@ SCENARIO("execute the JMZ instruction", "[instruction]")
       }
     }
 
-    WHEN("the carry flag is set")
+    WHEN("the negative flag is set")
     {
-      current.set_status(yarisc::test::status_c);
+      current.set_status(yarisc::test::status_n);
+
+      AND_WHEN("the instruction is executed")
+      {
+        yarisc::test::machine expected = current;
+        expected.set_ip(0x1ff0);
+
+        REQUIRE(current.execute_instruction());
+
+        THEN("the instruction pointer shall have the value `0x1ff0`")
+        {
+          CHECK(current == expected);
+        }
+      }
+    }
+
+    WHEN("the overflow flag is set")
+    {
+      current.set_status(yarisc::test::status_v);
+
+      AND_WHEN("the instruction is executed")
+      {
+        yarisc::test::machine expected = current;
+        expected.set_ip(0x1ff0);
+
+        REQUIRE(current.execute_instruction());
+
+        THEN("the instruction pointer shall have the value `0x1ff0`")
+        {
+          CHECK(current == expected);
+        }
+      }
+    }
+
+    WHEN("the negative and overflow flags are set")
+    {
+      current.set_status(yarisc::test::status_nv);
 
       AND_WHEN("the instruction is executed")
       {
@@ -768,6 +487,75 @@ SCENARIO("execute the JMZ instruction", "[instruction]")
         REQUIRE(current.execute_instruction());
 
         THEN("the instruction pointer shall point to the next instruction")
+        {
+          CHECK(current == expected);
+        }
+      }
+    }
+
+    WHEN("the status flags are set")
+    {
+      current.set_status(yarisc::test::status_nzcv);
+
+      AND_WHEN("the instruction is executed")
+      {
+        yarisc::test::machine expected = current;
+        expected.advance_ip(2);
+
+        REQUIRE(current.execute_instruction());
+
+        THEN("the instruction pointer shall point to the next instruction")
+        {
+          CHECK(current == expected);
+        }
+      }
+    }
+  }
+}
+
+SCENARIO("execute the BLE instruction", "[instruction]")
+{
+  using namespace yarisc::arch::assembly;
+
+  GIVEN("a test machine with a BLE to absolute address `0x1ff0` instruction")
+  {
+    yarisc::test::machine current{yarisc::arch::assemble<opcode::cond_branch>(le, immediate), 0x1ff0};
+
+    WHEN("the instruction is disassembled")
+    {
+      const std::string text = current.disassemble_instruction(2);
+
+      THEN("the result shall be the expected text")
+      {
+        CHECK(text == "BLE 0x1ff0");
+      }
+    }
+
+    WHEN("the instruction is executed")
+    {
+      yarisc::test::machine expected = current;
+      expected.advance_ip(2);
+
+      REQUIRE(current.execute_instruction());
+
+      THEN("the instruction pointer shall point to the next instruction")
+      {
+        CHECK(current == expected);
+      }
+    }
+
+    WHEN("the negative flag is set")
+    {
+      current.set_status(yarisc::test::status_n);
+
+      AND_WHEN("the instruction is executed")
+      {
+        yarisc::test::machine expected = current;
+        expected.set_ip(0x1ff0);
+
+        REQUIRE(current.execute_instruction());
+
+        THEN("the instruction pointer shall have the value `0x1ff0`")
         {
           CHECK(current == expected);
         }
@@ -792,9 +580,45 @@ SCENARIO("execute the JMZ instruction", "[instruction]")
       }
     }
 
+    WHEN("the overflow flag is set")
+    {
+      current.set_status(yarisc::test::status_v);
+
+      AND_WHEN("the instruction is executed")
+      {
+        yarisc::test::machine expected = current;
+        expected.set_ip(0x1ff0);
+
+        REQUIRE(current.execute_instruction());
+
+        THEN("the instruction pointer shall have the value `0x1ff0`")
+        {
+          CHECK(current == expected);
+        }
+      }
+    }
+
+    WHEN("the negative and overflow flags are set")
+    {
+      current.set_status(yarisc::test::status_nv);
+
+      AND_WHEN("the instruction is executed")
+      {
+        yarisc::test::machine expected = current;
+        expected.advance_ip(2);
+
+        REQUIRE(current.execute_instruction());
+
+        THEN("the instruction pointer shall point to the next instruction")
+        {
+          CHECK(current == expected);
+        }
+      }
+    }
+
     WHEN("the status flags are set")
     {
-      current.set_status(yarisc::test::status_zc);
+      current.set_status(yarisc::test::status_nzcv);
 
       AND_WHEN("the instruction is executed")
       {
@@ -812,128 +636,13 @@ SCENARIO("execute the JMZ instruction", "[instruction]")
   }
 }
 
-SCENARIO("execute the JNZ instruction", "[instruction]")
+SCENARIO("execute the BLO instruction", "[instruction]")
 {
   using namespace yarisc::arch::assembly;
 
-  GIVEN("a test machine with a JNZ to absolute short address `0x1a` instruction")
+  GIVEN("a test machine with a BLO to absolute address `0x1ff0` instruction")
   {
-    yarisc::test::machine current{yarisc::arch::assemble<opcode::cond_jump>(jnz, short_cond_jump_address{0x1a})};
-
-    WHEN("the instruction is disassembled")
-    {
-      const std::string text = current.disassemble_instruction();
-
-      THEN("the result shall be the expected text")
-      {
-        CHECK(text == "JNZ 0x001a");
-      }
-    }
-
-    WHEN("the instruction is executed")
-    {
-      yarisc::test::machine expected = current;
-      expected.set_ip(0x1a);
-
-      REQUIRE(current.execute_instruction());
-
-      THEN("the instruction pointer shall have the value `0x1a`")
-      {
-        CHECK(current == expected);
-      }
-    }
-
-    WHEN("the carry flag is set")
-    {
-      current.set_status(yarisc::test::status_c);
-
-      AND_WHEN("the instruction is executed")
-      {
-        yarisc::test::machine expected = current;
-        expected.set_ip(0x1a);
-
-        REQUIRE(current.execute_instruction());
-
-        THEN("the instruction pointer shall have the value `0x1a`")
-        {
-          CHECK(current == expected);
-        }
-      }
-    }
-
-    WHEN("the zero flag is set")
-    {
-      current.set_status(yarisc::test::status_z);
-
-      AND_WHEN("the instruction is executed")
-      {
-        yarisc::test::machine expected = current;
-        expected.advance_ip();
-
-        REQUIRE(current.execute_instruction());
-
-        THEN("the instruction pointer shall point to the next instruction")
-        {
-          CHECK(current == expected);
-        }
-      }
-    }
-
-    WHEN("the status flags are set")
-    {
-      current.set_status(yarisc::test::status_zc);
-
-      AND_WHEN("the instruction is executed")
-      {
-        yarisc::test::machine expected = current;
-        expected.advance_ip();
-
-        REQUIRE(current.execute_instruction());
-
-        THEN("the instruction pointer shall point to the next instruction")
-        {
-          CHECK(current == expected);
-        }
-      }
-    }
-  }
-
-  GIVEN("a test machine with a JNZ to absolute short address `0xffe0` instruction")
-  {
-    yarisc::test::machine current{yarisc::arch::assemble<opcode::cond_jump>(jnz, short_cond_jump_address{0xffe0})};
-
-    WHEN("the instruction is disassembled")
-    {
-      const std::string text = current.disassemble_instruction();
-
-      THEN("the result shall be the expected text")
-      {
-        CHECK(text == "JNZ 0xffe0");
-      }
-    }
-
-    WHEN("the carry flag is set")
-    {
-      current.set_status(yarisc::test::status_c);
-
-      AND_WHEN("the instruction is executed")
-      {
-        yarisc::test::machine expected = current;
-        expected.set_ip(0xffe0);
-
-        REQUIRE(current.execute_instruction());
-
-        THEN("the instruction pointer shall have the value `0xffe0`")
-        {
-          CHECK(current == expected);
-        }
-      }
-    }
-  }
-
-  GIVEN("a test machine with a JNZ to absolute address `0x1ff0` instruction")
-  {
-    yarisc::test::machine current{yarisc::arch::assemble<opcode::cond_jump>(jnz, immediate), 0x1ff0};
+    yarisc::test::machine current{yarisc::arch::assemble<opcode::cond_branch>(lo, immediate), 0x1ff0};
 
     WHEN("the instruction is disassembled")
     {
@@ -941,7 +650,7 @@ SCENARIO("execute the JNZ instruction", "[instruction]")
 
       THEN("the result shall be the expected text")
       {
-        CHECK(text == "JNZ 0x1ff0");
+        CHECK(text == "BLO 0x1ff0");
       }
     }
 
@@ -958,6 +667,234 @@ SCENARIO("execute the JNZ instruction", "[instruction]")
       }
     }
 
+    WHEN("the zero flag is set")
+    {
+      current.set_status(yarisc::test::status_z);
+
+      AND_WHEN("the instruction is executed")
+      {
+        yarisc::test::machine expected = current;
+        expected.set_ip(0x1ff0);
+
+        REQUIRE(current.execute_instruction());
+
+        THEN("the instruction pointer shall have the value `0x1ff0`")
+        {
+          CHECK(current == expected);
+        }
+      }
+    }
+
+    WHEN("the carry flag is set")
+    {
+      current.set_status(yarisc::test::status_c);
+
+      AND_WHEN("the instruction is executed")
+      {
+        yarisc::test::machine expected = current;
+        expected.advance_ip(2);
+
+        REQUIRE(current.execute_instruction());
+
+        THEN("the instruction pointer shall point to the next instruction")
+        {
+          CHECK(current == expected);
+        }
+      }
+    }
+
+    WHEN("the zero and carry flags are set")
+    {
+      current.set_status(yarisc::test::status_zc);
+
+      AND_WHEN("the instruction is executed")
+      {
+        yarisc::test::machine expected = current;
+        expected.advance_ip(2);
+
+        REQUIRE(current.execute_instruction());
+
+        THEN("the instruction pointer shall point to the next instruction")
+        {
+          CHECK(current == expected);
+        }
+      }
+    }
+
+    WHEN("the status flags are set")
+    {
+      current.set_status(yarisc::test::status_nzcv);
+
+      AND_WHEN("the instruction is executed")
+      {
+        yarisc::test::machine expected = current;
+        expected.advance_ip(2);
+
+        REQUIRE(current.execute_instruction());
+
+        THEN("the instruction pointer shall point to the next instruction")
+        {
+          CHECK(current == expected);
+        }
+      }
+    }
+  }
+}
+
+SCENARIO("execute the BLS instruction", "[instruction]")
+{
+  using namespace yarisc::arch::assembly;
+
+  GIVEN("a test machine with a BLS to absolute address `0x1ff0` instruction")
+  {
+    yarisc::test::machine current{yarisc::arch::assemble<opcode::cond_branch>(ls, immediate), 0x1ff0};
+
+    WHEN("the instruction is disassembled")
+    {
+      const std::string text = current.disassemble_instruction(2);
+
+      THEN("the result shall be the expected text")
+      {
+        CHECK(text == "BLS 0x1ff0");
+      }
+    }
+
+    WHEN("the instruction is executed")
+    {
+      yarisc::test::machine expected = current;
+      expected.set_ip(0x1ff0);
+
+      REQUIRE(current.execute_instruction());
+
+      THEN("the instruction pointer shall have the value `0x1ff0`")
+      {
+        CHECK(current == expected);
+      }
+    }
+
+    WHEN("the zero flag is set")
+    {
+      current.set_status(yarisc::test::status_z);
+
+      AND_WHEN("the instruction is executed")
+      {
+        yarisc::test::machine expected = current;
+        expected.set_ip(0x1ff0);
+
+        REQUIRE(current.execute_instruction());
+
+        THEN("the instruction pointer shall have the value `0x1ff0`")
+        {
+          CHECK(current == expected);
+        }
+      }
+    }
+
+    WHEN("the carry flag is set")
+    {
+      current.set_status(yarisc::test::status_c);
+
+      AND_WHEN("the instruction is executed")
+      {
+        yarisc::test::machine expected = current;
+        expected.advance_ip(2);
+
+        REQUIRE(current.execute_instruction());
+
+        THEN("the instruction pointer shall point to the next instruction")
+        {
+          CHECK(current == expected);
+        }
+      }
+    }
+
+    WHEN("the zero and carry flags are set")
+    {
+      current.set_status(yarisc::test::status_zc);
+
+      AND_WHEN("the instruction is executed")
+      {
+        yarisc::test::machine expected = current;
+        expected.set_ip(0x1ff0);
+
+        REQUIRE(current.execute_instruction());
+
+        THEN("the instruction pointer shall have the value `0x1ff0`")
+        {
+          CHECK(current == expected);
+        }
+      }
+    }
+
+    WHEN("the status flags are set")
+    {
+      current.set_status(yarisc::test::status_nzcv);
+
+      AND_WHEN("the instruction is executed")
+      {
+        yarisc::test::machine expected = current;
+        expected.set_ip(0x1ff0);
+
+        REQUIRE(current.execute_instruction());
+
+        THEN("the instruction pointer shall have the value `0x1ff0`")
+        {
+          CHECK(current == expected);
+        }
+      }
+    }
+  }
+}
+
+SCENARIO("execute the BNE instruction", "[instruction]")
+{
+  using namespace yarisc::arch::assembly;
+
+  GIVEN("a test machine with a BNE to absolute address `0x1ff0` instruction")
+  {
+    yarisc::test::machine current{yarisc::arch::assemble<opcode::cond_branch>(ne, immediate), 0x1ff0};
+
+    WHEN("the instruction is disassembled")
+    {
+      const std::string text = current.disassemble_instruction(2);
+
+      THEN("the result shall be the expected text")
+      {
+        CHECK(text == "BNE 0x1ff0");
+      }
+    }
+
+    WHEN("the instruction is executed")
+    {
+      yarisc::test::machine expected = current;
+      expected.set_ip(0x1ff0);
+
+      REQUIRE(current.execute_instruction());
+
+      THEN("the instruction pointer shall have the value `0x1ff0`")
+      {
+        CHECK(current == expected);
+      }
+    }
+
+    WHEN("the zero flag is set")
+    {
+      current.set_status(yarisc::test::status_z);
+
+      AND_WHEN("the instruction is executed")
+      {
+        yarisc::test::machine expected = current;
+        expected.advance_ip(2);
+
+        REQUIRE(current.execute_instruction());
+
+        THEN("the instruction pointer shall point to the next instruction")
+        {
+          CHECK(current == expected);
+        }
+      }
+    }
+
     WHEN("the carry flag is set")
     {
       current.set_status(yarisc::test::status_c);
@@ -970,6 +907,180 @@ SCENARIO("execute the JNZ instruction", "[instruction]")
         REQUIRE(current.execute_instruction());
 
         THEN("the instruction pointer shall have the value `0x1ff0`")
+        {
+          CHECK(current == expected);
+        }
+      }
+    }
+
+    WHEN("the status flags are set")
+    {
+      current.set_status(yarisc::test::status_nzcv);
+
+      AND_WHEN("the instruction is executed")
+      {
+        yarisc::test::machine expected = current;
+        expected.advance_ip(2);
+
+        REQUIRE(current.execute_instruction());
+
+        THEN("the instruction pointer shall point to the next instruction")
+        {
+          CHECK(current == expected);
+        }
+      }
+    }
+  }
+}
+
+SCENARIO("execute the BGE instruction", "[instruction]")
+{
+  using namespace yarisc::arch::assembly;
+
+  GIVEN("a test machine with a BGE to absolute address `0x1ff0` instruction")
+  {
+    yarisc::test::machine current{yarisc::arch::assemble<opcode::cond_branch>(ge, immediate), 0x1ff0};
+
+    WHEN("the instruction is disassembled")
+    {
+      const std::string text = current.disassemble_instruction(2);
+
+      THEN("the result shall be the expected text")
+      {
+        CHECK(text == "BGE 0x1ff0");
+      }
+    }
+
+    WHEN("the instruction is executed")
+    {
+      yarisc::test::machine expected = current;
+      expected.set_ip(0x1ff0);
+
+      REQUIRE(current.execute_instruction());
+
+      THEN("the instruction pointer shall have the value `0x1ff0`")
+      {
+        CHECK(current == expected);
+      }
+    }
+
+    WHEN("the negative flag is set")
+    {
+      current.set_status(yarisc::test::status_n);
+
+      AND_WHEN("the instruction is executed")
+      {
+        yarisc::test::machine expected = current;
+        expected.advance_ip(2);
+
+        REQUIRE(current.execute_instruction());
+
+        THEN("the instruction pointer shall point to the next instruction")
+        {
+          CHECK(current == expected);
+        }
+      }
+    }
+
+    WHEN("the overflow flag is set")
+    {
+      current.set_status(yarisc::test::status_v);
+
+      AND_WHEN("the instruction is executed")
+      {
+        yarisc::test::machine expected = current;
+        expected.advance_ip(2);
+
+        REQUIRE(current.execute_instruction());
+
+        THEN("the instruction pointer shall point to the next instruction")
+        {
+          CHECK(current == expected);
+        }
+      }
+    }
+
+    WHEN("the negative and overflow flags are set")
+    {
+      current.set_status(yarisc::test::status_nv);
+
+      AND_WHEN("the instruction is executed")
+      {
+        yarisc::test::machine expected = current;
+        expected.set_ip(0x1ff0);
+
+        REQUIRE(current.execute_instruction());
+
+        THEN("the instruction pointer shall have the value `0x1ff0`")
+        {
+          CHECK(current == expected);
+        }
+      }
+    }
+
+    WHEN("the status flags are set")
+    {
+      current.set_status(yarisc::test::status_nzcv);
+
+      AND_WHEN("the instruction is executed")
+      {
+        yarisc::test::machine expected = current;
+        expected.set_ip(0x1ff0);
+
+        REQUIRE(current.execute_instruction());
+
+        THEN("the instruction pointer shall have the value `0x1ff0`")
+        {
+          CHECK(current == expected);
+        }
+      }
+    }
+  }
+}
+
+SCENARIO("execute the BGT instruction", "[instruction]")
+{
+  using namespace yarisc::arch::assembly;
+
+  GIVEN("a test machine with a BGT to absolute address `0x1ff0` instruction")
+  {
+    yarisc::test::machine current{yarisc::arch::assemble<opcode::cond_branch>(gt, immediate), 0x1ff0};
+
+    WHEN("the instruction is disassembled")
+    {
+      const std::string text = current.disassemble_instruction(2);
+
+      THEN("the result shall be the expected text")
+      {
+        CHECK(text == "BGT 0x1ff0");
+      }
+    }
+
+    WHEN("the instruction is executed")
+    {
+      yarisc::test::machine expected = current;
+      expected.set_ip(0x1ff0);
+
+      REQUIRE(current.execute_instruction());
+
+      THEN("the instruction pointer shall have the value `0x1ff0`")
+      {
+        CHECK(current == expected);
+      }
+    }
+
+    WHEN("the negative flag is set")
+    {
+      current.set_status(yarisc::test::status_n);
+
+      AND_WHEN("the instruction is executed")
+      {
+        yarisc::test::machine expected = current;
+        expected.advance_ip(2);
+
+        REQUIRE(current.execute_instruction());
+
+        THEN("the instruction pointer shall point to the next instruction")
         {
           CHECK(current == expected);
         }
@@ -994,9 +1105,255 @@ SCENARIO("execute the JNZ instruction", "[instruction]")
       }
     }
 
+    WHEN("the overflow flag is set")
+    {
+      current.set_status(yarisc::test::status_v);
+
+      AND_WHEN("the instruction is executed")
+      {
+        yarisc::test::machine expected = current;
+        expected.advance_ip(2);
+
+        REQUIRE(current.execute_instruction());
+
+        THEN("the instruction pointer shall point to the next instruction")
+        {
+          CHECK(current == expected);
+        }
+      }
+    }
+
+    WHEN("the negative and overflow flags are set")
+    {
+      current.set_status(yarisc::test::status_nv);
+
+      AND_WHEN("the instruction is executed")
+      {
+        yarisc::test::machine expected = current;
+        expected.set_ip(0x1ff0);
+
+        REQUIRE(current.execute_instruction());
+
+        THEN("the instruction pointer shall have the value `0x1ff0`")
+        {
+          CHECK(current == expected);
+        }
+      }
+    }
+
     WHEN("the status flags are set")
     {
+      current.set_status(yarisc::test::status_nzcv);
+
+      AND_WHEN("the instruction is executed")
+      {
+        yarisc::test::machine expected = current;
+        expected.advance_ip(2);
+
+        REQUIRE(current.execute_instruction());
+
+        THEN("the instruction pointer shall point to the next instruction")
+        {
+          CHECK(current == expected);
+        }
+      }
+    }
+  }
+}
+
+SCENARIO("execute the BHS instruction", "[instruction]")
+{
+  using namespace yarisc::arch::assembly;
+
+  GIVEN("a test machine with a BHS to absolute address `0x1ff0` instruction")
+  {
+    yarisc::test::machine current{yarisc::arch::assemble<opcode::cond_branch>(hs, immediate), 0x1ff0};
+
+    WHEN("the instruction is disassembled")
+    {
+      const std::string text = current.disassemble_instruction(2);
+
+      THEN("the result shall be the expected text")
+      {
+        CHECK(text == "BHS 0x1ff0");
+      }
+    }
+
+    WHEN("the instruction is executed")
+    {
+      yarisc::test::machine expected = current;
+      expected.advance_ip(2);
+
+      REQUIRE(current.execute_instruction());
+
+      THEN("the instruction pointer shall point to the next instruction")
+      {
+        CHECK(current == expected);
+      }
+    }
+
+    WHEN("the zero flag is set")
+    {
+      current.set_status(yarisc::test::status_z);
+
+      AND_WHEN("the instruction is executed")
+      {
+        yarisc::test::machine expected = current;
+        expected.advance_ip(2);
+
+        REQUIRE(current.execute_instruction());
+
+        THEN("the instruction pointer shall point to the next instruction")
+        {
+          CHECK(current == expected);
+        }
+      }
+    }
+
+    WHEN("the carry flag is set")
+    {
+      current.set_status(yarisc::test::status_c);
+
+      AND_WHEN("the instruction is executed")
+      {
+        yarisc::test::machine expected = current;
+        expected.set_ip(0x1ff0);
+
+        REQUIRE(current.execute_instruction());
+
+        THEN("the instruction pointer shall have the value `0x1ff0`")
+        {
+          CHECK(current == expected);
+        }
+      }
+    }
+
+    WHEN("the zero and carry flags are set")
+    {
       current.set_status(yarisc::test::status_zc);
+
+      AND_WHEN("the instruction is executed")
+      {
+        yarisc::test::machine expected = current;
+        expected.set_ip(0x1ff0);
+
+        REQUIRE(current.execute_instruction());
+
+        THEN("the instruction pointer shall have the value `0x1ff0`")
+        {
+          CHECK(current == expected);
+        }
+      }
+    }
+
+    WHEN("the status flags are set")
+    {
+      current.set_status(yarisc::test::status_nzcv);
+
+      AND_WHEN("the instruction is executed")
+      {
+        yarisc::test::machine expected = current;
+        expected.set_ip(0x1ff0);
+
+        REQUIRE(current.execute_instruction());
+
+        THEN("the instruction pointer shall have the value `0x1ff0`")
+        {
+          CHECK(current == expected);
+        }
+      }
+    }
+  }
+}
+
+SCENARIO("execute the BHI instruction", "[instruction]")
+{
+  using namespace yarisc::arch::assembly;
+
+  GIVEN("a test machine with a BHI to absolute address `0x1ff0` instruction")
+  {
+    yarisc::test::machine current{yarisc::arch::assemble<opcode::cond_branch>(hi, immediate), 0x1ff0};
+
+    WHEN("the instruction is disassembled")
+    {
+      const std::string text = current.disassemble_instruction(2);
+
+      THEN("the result shall be the expected text")
+      {
+        CHECK(text == "BHI 0x1ff0");
+      }
+    }
+
+    WHEN("the instruction is executed")
+    {
+      yarisc::test::machine expected = current;
+      expected.advance_ip(2);
+
+      REQUIRE(current.execute_instruction());
+
+      THEN("the instruction pointer shall point to the next instruction")
+      {
+        CHECK(current == expected);
+      }
+    }
+
+    WHEN("the zero flag is set")
+    {
+      current.set_status(yarisc::test::status_z);
+
+      AND_WHEN("the instruction is executed")
+      {
+        yarisc::test::machine expected = current;
+        expected.advance_ip(2);
+
+        REQUIRE(current.execute_instruction());
+
+        THEN("the instruction pointer shall point to the next instruction")
+        {
+          CHECK(current == expected);
+        }
+      }
+    }
+
+    WHEN("the carry flag is set")
+    {
+      current.set_status(yarisc::test::status_c);
+
+      AND_WHEN("the instruction is executed")
+      {
+        yarisc::test::machine expected = current;
+        expected.set_ip(0x1ff0);
+
+        REQUIRE(current.execute_instruction());
+
+        THEN("the instruction pointer shall have the value `0x1ff0`")
+        {
+          CHECK(current == expected);
+        }
+      }
+    }
+
+    WHEN("the zero and carry flags are set")
+    {
+      current.set_status(yarisc::test::status_zc);
+
+      AND_WHEN("the instruction is executed")
+      {
+        yarisc::test::machine expected = current;
+        expected.advance_ip(2);
+
+        REQUIRE(current.execute_instruction());
+
+        THEN("the instruction pointer shall point to the next instruction")
+        {
+          CHECK(current == expected);
+        }
+      }
+    }
+
+    WHEN("the status flags are set")
+    {
+      current.set_status(yarisc::test::status_nzcv);
 
       AND_WHEN("the instruction is executed")
       {

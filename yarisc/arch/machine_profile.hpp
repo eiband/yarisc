@@ -72,9 +72,9 @@ namespace yarisc::arch
       /* 0x27 */ {},
       /* 0x28 */ {},
       /* 0x29 */ {},
-      /* 0x2a */ {"JMP", feature_level::v1, optype::jump},
+      /* 0x2a */ {"BRA", feature_level::v1, optype::branch},
       /* 0x2b */ {},
-      /* 0x2c */ {"J", feature_level::min, optype::cond_jump},
+      /* 0x2c */ {"B", feature_level::min, optype::cond_branch},
       /* 0x2d */ {},
       /* 0x2e */ {},
       /* 0x2f */ {},
@@ -134,7 +134,7 @@ namespace yarisc::arch
      * @brief Mnemonic of the instruction, e.g. "MOV"
      *
      * @note
-     * For conditional jumps, the mnemonic is just the prefix for the jump condition mnemonic.
+     * For conditional branches, the mnemonic is just the prefix for the branch condition mnemonic.
      */
     template <opcode Code>
     static constexpr std::string_view instruction_mnemonic = detail::instruction_mnemonic_v<Code>;

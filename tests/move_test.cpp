@@ -31,7 +31,7 @@ SCENARIO("execute the MOV instruction", "[instruction]")
     {
       current.set_r2(0xfefe);
       current.set_r3(0x1234);
-      current.set_status(yarisc::test::status_zc);
+      current.set_status(yarisc::test::status_nzcv);
 
       AND_WHEN("the instruction is executed")
       {
