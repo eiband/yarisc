@@ -221,6 +221,26 @@ namespace yarisc::arch
       std::uint64_t steps, execution_mode mode = execution_mode::normal);
 
     /**
+     * @brief Sets the stack pointer to the given address
+     *
+     * @param address points to the top of the stack
+     */
+    void set_sp(word_t address) noexcept
+    {
+      data_.state.reg.named.set_sp(address);
+    }
+
+    /**
+     * @brief Sets the instruction pointer to the given address
+     *
+     * @param address points to the next instruction to execute
+     */
+    void set_ip(word_t address) noexcept
+    {
+      data_.state.reg.named.set_ip(address);
+    }
+
+    /**
      * @brief Resets the machine to initial state
      *
      * This function keeps the debugger.

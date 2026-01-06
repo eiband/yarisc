@@ -87,7 +87,8 @@ namespace yarisc::emu
     static constexpr std::string_view info_message = "Type 'h' for a list of commands";
     static constexpr std::string_view help_message =
       "Commands: h: help, hh: more help, e: exit, r: reset, l <path>: load image";
-    static constexpr std::string_view more_help_message = "Commands: s: single step, x: execute";
+    static constexpr std::string_view more_help_message =
+      "Commands: s: single step, x: execute, b 0x<addr>: branch, p 0x<addr>: set stack";
 
     static constexpr std::string_view finished_message = "Program has finished";
 
@@ -301,10 +302,18 @@ namespace yarisc::emu
           steps.reset();
         else if (command == "r")
           reset_machine(m, dbg);
-        else if (command == "l")
-          session_->set_error_message("Load command expects an image file path: l path/to/image");
         else if (command.starts_with("l "))
           reset_machine(m, dbg, command.substr(2));
+        else if (command.starts_with("l"))
+          session_->set_error_message("Load command expects an image file path: l path/to/image");
+        else if (command.starts_with("b 0x"))
+          branch(m, command.substr(4));
+        else if (command.starts_with("b"))
+          session_->set_error_message("Branch command expects an address: b 0x1234");
+        else if (command.starts_with("p 0x"))
+          setup_stack(m, command.substr(4));
+        else if (command.starts_with("p"))
+          session_->set_error_message("Stack pointer expects an address: p 0x1234");
         else
           session_->set_error_message("Unknown command: " + command);
       }
@@ -351,6 +360,37 @@ namespace yarisc::emu
       {
         session_->set_info_message("Reset to initial state");
       }
+    }
+
+    void branch(arch::machine& m, const std::string& hex)
+    {
+      if (const auto address = parse_address(hex); address.has_value())
+        m.set_ip(*address);
+    }
+
+    void setup_stack(arch::machine& m, const std::string& hex)
+    {
+      if (const auto address = parse_address(hex); address.has_value())
+        m.set_sp(*address);
+    }
+
+    [[nodiscard]] std::optional<arch::word_t> parse_address(const std::string& hex)
+    {
+      if (!hex.empty() && (hex.size() <= 4) && (hex.find_first_not_of("0123456789abcdef") == std::string::npos))
+      {
+        const auto address = static_cast<arch::word_t>(std::stoi(hex, nullptr, 16));
+
+        if ((address & 0x1) == 0)
+          return address;
+
+        session_->set_error_message("0x" + hex + " is not aligned");
+      }
+      else
+      {
+        session_->set_error_message("0x" + hex + " is not a valid address");
+      }
+
+      return std::nullopt;
     }
   };
 
