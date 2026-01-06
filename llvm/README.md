@@ -1,0 +1,2 @@
+# YaRISC LLVM Backend
+The backend is work in progress. It is at a point that some code can be generated, but it is far from being complete. The current patch is based on [this commit](https://github.com/llvm/llvm-project/commit/ffbed74c752c360321889102645481c0c23a9f59).

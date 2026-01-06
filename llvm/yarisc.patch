@@ -1,0 +1,4294 @@
+diff --git a/clang/lib/Basic/CMakeLists.txt b/clang/lib/Basic/CMakeLists.txt
+index adfc6ee326b5..26a8654ccda9 100644
+--- a/clang/lib/Basic/CMakeLists.txt
++++ b/clang/lib/Basic/CMakeLists.txt
+@@ -122,6 +122,7 @@ add_clang_library(clangBasic
+   Targets/X86.cpp
+   Targets/XCore.cpp
+   Targets/Xtensa.cpp
++  Targets/YaRISC.cpp
+   TokenKinds.cpp
+   TypeTraits.cpp
+   Version.cpp
+diff --git a/clang/lib/Basic/Targets.cpp b/clang/lib/Basic/Targets.cpp
+index 38eb1edd4bfb..58cb99f68eef 100644
+--- a/clang/lib/Basic/Targets.cpp
++++ b/clang/lib/Basic/Targets.cpp
+@@ -40,6 +40,7 @@
+ #include "Targets/X86.h"
+ #include "Targets/XCore.h"
+ #include "Targets/Xtensa.h"
++#include "Targets/Yarisc.h"
+ #include "clang/Basic/Diagnostic.h"
+ #include "clang/Basic/DiagnosticFrontend.h"
+ #include "llvm/ADT/StringExtras.h"
+@@ -781,6 +782,9 @@ std::unique_ptr<TargetInfo> AllocateTarget(const llvm::Triple &Triple,
+ 
+   case llvm::Triple::xtensa:
+     return std::make_unique<XtensaTargetInfo>(Triple, Opts);
++
++  case llvm::Triple::yarisc:
++    return std::make_unique<YaRISCTargetInfo>(Triple, Opts);
+   }
+ }
+ } // namespace targets
+diff --git a/clang/lib/Basic/Targets/YaRISC.cpp b/clang/lib/Basic/Targets/YaRISC.cpp
+new file mode 100644
+index 000000000000..adf87efbada8
+--- /dev/null
++++ b/clang/lib/Basic/Targets/YaRISC.cpp
+@@ -0,0 +1,74 @@
++//===--- YaRISC.cpp - Implement YaRISC target feature support -------------===//
++//
++// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
++// See https://llvm.org/LICENSE.txt for license information.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++//
++//===----------------------------------------------------------------------===//
++//
++// This file implements YaRISC TargetInfo objects.
++//
++//===----------------------------------------------------------------------===//
++
++#include "YaRISC.h"
++#include "Targets.h"
++#include "clang/Basic/MacroBuilder.h"
++#include "llvm/ADT/StringSwitch.h"
++
++using namespace clang;
++using namespace clang::targets;
++
++const char *const YaRISCTargetInfo::GCCRegNames[] = {
++    "r0", "r1", "r2", "r3", "r4", "r5", "sp", "ip",
++};
++
++ArrayRef<const char *> YaRISCTargetInfo::getGCCRegNames() const {
++  return llvm::ArrayRef(GCCRegNames);
++}
++
++ArrayRef<TargetInfo::GCCRegAlias> YaRISCTargetInfo::getGCCRegAliases() const {
++  return llvm::ArrayRef<TargetInfo::GCCRegAlias>();
++}
++
++bool YaRISCTargetInfo::hasFeature(StringRef Feature) const {
++  return llvm::StringSwitch<bool>(Feature)
++      .Case("softfloat", SoftFloat)
++      .Case("yarisc", true)
++      .Default(false);
++}
++
++struct YaRISCCPUInfo {
++  llvm::StringLiteral Name;
++  YaRISCTargetInfo::CPUKind Kind;
++};
++
++static constexpr YaRISCCPUInfo CPUInfo[] = {
++    {{"min"}, YaRISCTargetInfo::CK_MINIMUM},
++    {{"v1"}, YaRISCTargetInfo::CK_V1},
++};
++
++YaRISCTargetInfo::CPUKind YaRISCTargetInfo::getCPUKind(StringRef Name) const {
++  const YaRISCCPUInfo *Item = llvm::find_if(
++      CPUInfo, [Name](const YaRISCCPUInfo &Info) { return Info.Name == Name; });
++
++  if (Item == std::end(CPUInfo))
++    return CK_GENERIC;
++
++  return Item->Kind;
++}
++
++void YaRISCTargetInfo::fillValidCPUList(
++    SmallVectorImpl<StringRef> &Values) const {
++  for (const YaRISCCPUInfo &Info : CPUInfo)
++    Values.push_back(Info.Name);
++}
++
++void YaRISCTargetInfo::getTargetDefines(const LangOptions &Opts,
++                                        MacroBuilder &Builder) const {
++  DefineStd(Builder, "yarisc", Opts);
++  Builder.defineMacro("__yarisc__");
++  Builder.defineMacro("__REGISTER_PREFIX__", "");
++
++  if (SoftFloat)
++    Builder.defineMacro("SOFT_FLOAT", "1");
++}
+diff --git a/clang/lib/Basic/Targets/YaRISC.h b/clang/lib/Basic/Targets/YaRISC.h
+new file mode 100644
+index 000000000000..1109bfa924c2
+--- /dev/null
++++ b/clang/lib/Basic/Targets/YaRISC.h
+@@ -0,0 +1,115 @@
++//===--- YaRISC.h - declare YaRISC target feature support -------*- C++ -*-===//
++//
++// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
++// See https://llvm.org/LICENSE.txt for license information.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++//
++//===----------------------------------------------------------------------===//
++//
++// This file declares YaRISC TargetInfo objects.
++//
++//===----------------------------------------------------------------------===//
++
++#ifndef LLVM_CLANG_LIB_BASIC_TARGETS_YARISC_H
++#define LLVM_CLANG_LIB_BASIC_TARGETS_YARISC_H
++
++#include "clang/Basic/TargetInfo.h"
++#include "clang/Basic/TargetOptions.h"
++#include "llvm/Support/Compiler.h"
++#include "llvm/TargetParser/Triple.h"
++
++namespace clang {
++namespace targets {
++
++class LLVM_LIBRARY_VISIBILITY YaRISCTargetInfo : public TargetInfo {
++  static const char *const GCCRegNames[];
++  bool SoftFloat;
++
++public:
++  YaRISCTargetInfo(const llvm::Triple &Triple, const TargetOptions &)
++      : TargetInfo(Triple), SoftFloat(false) {
++    TLSSupported = false;
++    IntWidth = 16;
++    IntAlign = 16;
++    LongWidth = 32;
++    LongAlign = 16;
++    LongLongWidth = 64;
++    LongLongAlign = 16;
++    FloatWidth = 32;
++    FloatAlign = 16;
++    DoubleWidth = LongDoubleWidth = 64;
++    DoubleAlign = LongDoubleAlign = 16;
++    PointerWidth = 16;
++    PointerAlign = 16;
++    SuitableAlign = 16;
++    SizeType = UnsignedShort;
++    IntPtrType = SignedShort;
++    IntMaxType = SignedLongLong;
++    PtrDiffType = SignedShort;
++    resetDataLayout();
++  }
++
++  bool hasBitIntType() const override { return true; }
++
++  int getEHDataRegisterNumber(unsigned RegNo) const override { return -1; }
++
++  bool handleTargetFeatures(std::vector<std::string> &Features,
++                            DiagnosticsEngine &Diags) override {
++    // Check if software floating point is enabled
++    if (llvm::is_contained(Features, "+soft-float"))
++      SoftFloat = true;
++    return true;
++  }
++
++  void getTargetDefines(const LangOptions &Opts,
++                        MacroBuilder &Builder) const override;
++
++  bool hasFeature(StringRef Feature) const override;
++
++  llvm::SmallVector<Builtin::InfosShard> getTargetBuiltins() const override {
++    return {};
++  }
++
++  BuiltinVaListKind getBuiltinVaListKind() const override {
++    return TargetInfo::VoidPtrBuiltinVaList;
++  }
++
++  ArrayRef<const char *> getGCCRegNames() const override;
++  ArrayRef<TargetInfo::GCCRegAlias> getGCCRegAliases() const override;
++
++  bool validateAsmConstraint(const char *&Name,
++                             TargetInfo::ConstraintInfo &info) const override {
++    return false;
++  }
++
++  std::string_view getClobbers() const override { return ""; }
++
++  enum CPUKind {
++    CK_GENERIC,
++    CK_MINIMUM,
++    CK_V1,
++  } CPU = CK_GENERIC;
++
++  CPUKind getCPUKind(StringRef Name) const;
++
++  bool isValidCPUName(StringRef Name) const override {
++    return getCPUKind(Name) != CK_GENERIC;
++  }
++
++  void fillValidCPUList(SmallVectorImpl<StringRef> &Values) const override;
++
++  bool setCPU(const std::string &Name) override {
++    CPU = getCPUKind(Name);
++    return CPU != CK_GENERIC;
++  }
++
++  std::pair<unsigned, unsigned> hardwareInterferenceSizes() const override {
++    // There are no caches in this simple architecture.
++    return std::make_pair(1, 1);
++  }
++};
++
++} // namespace targets
++} // namespace clang
++
++#endif // LLVM_CLANG_LIB_BASIC_TARGETS_YARISC_H
+diff --git a/llvm/CMakeLists.txt b/llvm/CMakeLists.txt
+index 6d94cbbcd255..cab68f33ea60 100644
+--- a/llvm/CMakeLists.txt
++++ b/llvm/CMakeLists.txt
+@@ -556,6 +556,7 @@ set(LLVM_ALL_EXPERIMENTAL_TARGETS
+   DirectX
+   M68k
+   Xtensa
++  YaRISC
+ )
+ 
+ # List of targets with JIT support:
+diff --git a/llvm/include/llvm/BinaryFormat/ELF.h b/llvm/include/llvm/BinaryFormat/ELF.h
+index bfcf5dab4772..762483e322ee 100644
+--- a/llvm/include/llvm/BinaryFormat/ELF.h
++++ b/llvm/include/llvm/BinaryFormat/ELF.h
+@@ -1090,6 +1090,11 @@ enum : unsigned {
+   EF_XTENSA_XT_LIT = 0x00000200,
+ };
+ 
++// ELF Relocation type for YaRISC.
++enum {
++#include "ELFRelocs/YaRISC.def"
++};
++
+ // ELF Relocation types for Xtensa
+ enum {
+ #include "ELFRelocs/Xtensa.def"
+diff --git a/llvm/include/llvm/BinaryFormat/ELFRelocs/YaRISC.def b/llvm/include/llvm/BinaryFormat/ELFRelocs/YaRISC.def
+new file mode 100644
+index 000000000000..cb4cf1a3524e
+--- /dev/null
++++ b/llvm/include/llvm/BinaryFormat/ELFRelocs/YaRISC.def
+@@ -0,0 +1,12 @@
++
++#ifndef ELF_RELOC
++#error "ELF_RELOC must be defined"
++#endif
++
++// TODO: YaRISC adapt to actual relocations
++ELF_RELOC(R_YARISC_NONE,         0)
++ELF_RELOC(R_YARISC_8,            1)
++ELF_RELOC(R_YARISC_16,           2)
++ELF_RELOC(R_YARISC_DISP8,        3)
++ELF_RELOC(R_YARISC_DISP16,       4)
++ELF_RELOC(R_YARISC_PCREL32,      5)
+diff --git a/llvm/include/llvm/TargetParser/Triple.h b/llvm/include/llvm/TargetParser/Triple.h
+index e8aa43a2337c..2a06ca2cb5ba 100644
+--- a/llvm/include/llvm/TargetParser/Triple.h
++++ b/llvm/include/llvm/TargetParser/Triple.h
+@@ -91,6 +91,7 @@ public:
+     x86_64,      // X86-64: amd64, x86_64
+     xcore,       // XCore: xcore
+     xtensa,      // Tensilica: Xtensa
++    yarisc,      // YaRISC
+     nvptx,       // NVPTX: 32-bit
+     nvptx64,     // NVPTX: 64-bit
+     amdil,       // AMDIL
+diff --git a/llvm/include/module.modulemap b/llvm/include/module.modulemap
+index 48b4622232ff..836173b4c714 100644
+--- a/llvm/include/module.modulemap
++++ b/llvm/include/module.modulemap
+@@ -100,6 +100,7 @@ module LLVM_BinaryFormat {
+     textual header "llvm/BinaryFormat/ELFRelocs/Sparc.def"
+     textual header "llvm/BinaryFormat/ELFRelocs/SystemZ.def"
+     textual header "llvm/BinaryFormat/ELFRelocs/VE.def"
++    textual header "llvm/BinaryFormat/ELFRelocs/YaRISC.def"
+     textual header "llvm/BinaryFormat/ELFRelocs/x86_64.def"
+     textual header "llvm/BinaryFormat/ELFRelocs/Xtensa.def"
+     textual header "llvm/BinaryFormat/WasmRelocs.def"
+diff --git a/llvm/lib/Target/YaRISC/AsmParser/CMakeLists.txt b/llvm/lib/Target/YaRISC/AsmParser/CMakeLists.txt
+new file mode 100644
+index 000000000000..0fa56449815e
+--- /dev/null
++++ b/llvm/lib/Target/YaRISC/AsmParser/CMakeLists.txt
+@@ -0,0 +1,14 @@
++add_llvm_component_library(LLVMYaRISCAsmParser
++  YaRISCAsmParser.cpp
++
++  LINK_COMPONENTS
++  MC
++  MCParser
++  YaRISCDesc
++  YaRISCInfo
++  Support
++  TargetParser
++
++  ADD_TO_COMPONENT
++  YaRISC
++  )
+diff --git a/llvm/lib/Target/YaRISC/AsmParser/YaRISCAsmParser.cpp b/llvm/lib/Target/YaRISC/AsmParser/YaRISCAsmParser.cpp
+new file mode 100644
+index 000000000000..7867d0e9e3d5
+--- /dev/null
++++ b/llvm/lib/Target/YaRISC/AsmParser/YaRISCAsmParser.cpp
+@@ -0,0 +1,258 @@
++//===-- YaRISCAsmParser.cpp - YaRISC assembly to MCInst instructions ------===//
++//
++// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
++// See https://llvm.org/LICENSE.txt for license information.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++//
++//===----------------------------------------------------------------------===//
++
++#include "MCTargetDesc/YaRISCInstPrinter.h"
++#include "MCTargetDesc/YaRISCMCAsmInfo.h"
++#include "MCTargetDesc/YaRISCMCTargetDesc.h"
++#include "TargetInfo/YaRISCTargetInfo.h"
++#include "llvm/ADT/SmallVector.h"
++#include "llvm/ADT/StringRef.h"
++#include "llvm/BinaryFormat/ELF.h"
++#include "llvm/MC/MCAsmMacro.h"
++#include "llvm/MC/MCContext.h"
++#include "llvm/MC/MCExpr.h"
++#include "llvm/MC/MCInst.h"
++#include "llvm/MC/MCInstBuilder.h"
++#include "llvm/MC/MCInstrInfo.h"
++#include "llvm/MC/MCObjectFileInfo.h"
++#include "llvm/MC/MCParser/AsmLexer.h"
++#include "llvm/MC/MCParser/MCAsmParser.h"
++#include "llvm/MC/MCParser/MCParsedAsmOperand.h"
++#include "llvm/MC/MCParser/MCTargetAsmParser.h"
++#include "llvm/MC/MCRegisterInfo.h"
++#include "llvm/MC/MCStreamer.h"
++#include "llvm/MC/MCSubtargetInfo.h"
++#include "llvm/MC/MCSymbol.h"
++#include "llvm/MC/TargetRegistry.h"
++#include "llvm/Support/Casting.h"
++#include "llvm/Support/Compiler.h"
++#include "llvm/Support/ErrorHandling.h"
++#include "llvm/Support/MathExtras.h"
++#include "llvm/Support/SMLoc.h"
++#include "llvm/Support/raw_ostream.h"
++#include "llvm/TargetParser/Triple.h"
++#include <algorithm>
++#include <cassert>
++#include <cstdint>
++#include <memory>
++
++using namespace llvm;
++
++class YaRISCAsmParser : public MCTargetAsmParser {
++  MCAsmParser &Parser;
++  const MCRegisterInfo &MRI;
++
++  /// @name Auto-generated Match Functions
++  /// {
++
++#define GET_ASSEMBLER_HEADER
++#include "YaRISCGenAsmMatcher.inc"
++
++  /// }
++
++public:
++  YaRISCAsmParser(const MCSubtargetInfo &sti, MCAsmParser &parser,
++                  const MCInstrInfo &MII, const MCTargetOptions &Options)
++      : MCTargetAsmParser(Options, sti, MII), Parser(parser),
++        MRI(*Parser.getContext().getRegisterInfo()) {}
++
++  bool parseRegister(MCRegister &Reg, SMLoc &StartLoc, SMLoc &EndLoc) override;
++  ParseStatus tryParseRegister(MCRegister &Reg, SMLoc &StartLoc,
++                               SMLoc &EndLoc) override;
++
++  bool matchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
++                               OperandVector &Operands, MCStreamer &Out,
++                               uint64_t &ErrorInfo,
++                               bool MatchingInlineAsm) override;
++
++  bool parseInstruction(ParseInstructionInfo &Info, StringRef Name,
++                        SMLoc NameLoc, OperandVector &Operands) override;
++};
++
++namespace {
++class YaRISCOperand : public MCParsedAsmOperand {
++public:
++  enum KindTy { Token, Register, Immediate, Memory } Kind;
++
++  SMLoc StartLoc, EndLoc;
++
++  struct TokOp {
++    const char *Data;
++    unsigned Length;
++  };
++
++  struct RegOp {
++    MCRegister RegNum;
++  };
++
++  struct ImmOp {
++    const MCExpr *Val;
++  };
++
++  struct MemOp {
++    MCRegister BaseReg;
++    const MCExpr *Offset;
++  };
++
++  union {
++    TokOp Tok;
++    RegOp Reg;
++    ImmOp Imm;
++    MemOp Mem;
++  };
++
++  explicit YaRISCOperand(KindTy K) : Kind(K) {}
++
++  bool isToken() const override { return Kind == Token; }
++  bool isReg() const override { return Kind == Register; }
++  bool isImm() const override { return Kind == Immediate; }
++  bool isMem() const override { return Kind == Memory; }
++
++  MCRegister getReg() const override {
++    assert(isReg());
++    return Reg.RegNum;
++  }
++
++  const MCExpr *getImm() const {
++    assert(isImm());
++    return Imm.Val;
++  }
++
++  StringRef getToken() const {
++    assert(isToken());
++    return StringRef(Tok.Data, Tok.Length);
++  }
++
++  static std::unique_ptr<YaRISCOperand> CreateToken(StringRef Str, SMLoc S) {
++    auto Op = std::make_unique<YaRISCOperand>(Token);
++    Op->StartLoc = S;
++    Op->EndLoc = S;
++    return Op;
++  }
++
++  static std::unique_ptr<YaRISCOperand> CreateReg(MCRegister RegNum, SMLoc S,
++                                                  SMLoc E) {
++    auto Op = std::make_unique<YaRISCOperand>(Register);
++    Op->Reg.RegNum = RegNum;
++    Op->StartLoc = S;
++    Op->EndLoc = E;
++    return Op;
++  }
++
++  static std::unique_ptr<YaRISCOperand> CreateImm(const MCExpr *Val, SMLoc S,
++                                                  SMLoc E) {
++    auto Op = std::make_unique<YaRISCOperand>(Immediate);
++    Op->Imm.Val = Val;
++    Op->StartLoc = S;
++    Op->EndLoc = E;
++    return Op;
++  }
++
++  static std::unique_ptr<YaRISCOperand>
++  CreateMem(MCRegister BaseReg, const MCExpr *Offset, SMLoc S, SMLoc E) {
++    auto Op = std::make_unique<YaRISCOperand>(Memory);
++    Op->Mem.BaseReg = BaseReg;
++    Op->Mem.Offset = Offset;
++    Op->StartLoc = S;
++    Op->EndLoc = E;
++    return Op;
++  }
++
++  void print(raw_ostream &OS, const MCAsmInfo &) const override {
++    switch (Kind) {
++    case Token:
++      OS << Tok.Data;
++      break;
++    case Register:
++      OS << "Reg:" << YaRISCInstPrinter::getRegisterName(Reg.RegNum);
++      break;
++    case Immediate:
++      if (Imm.Val->getKind() == MCExpr::Constant) {
++        if (auto ImmExpr = cast<MCConstantExpr>(Imm.Val)->getValue())
++          OS << "Imm:" << ImmExpr;
++      } else if (Imm.Val->getKind() == MCExpr::SymbolRef) {
++        if (auto *SRE = dyn_cast<MCSymbolRefExpr>(Imm.Val)) {
++          const MCSymbol &Sym = SRE->getSymbol();
++          if (const char *SymNameStr = Sym.getName().data())
++            OS << "Imm:" << SymNameStr;
++        }
++      }
++      break;
++    case Memory:
++      // TODO: YaRISC
++      break;
++    }
++  }
++
++  SMLoc getStartLoc() const override { return StartLoc; }
++  SMLoc getEndLoc() const override { return EndLoc; }
++
++  void addExpr(MCInst &Inst, const MCExpr *Expr) const {
++    if (const MCConstantExpr *CE = dyn_cast<MCConstantExpr>(Expr))
++      Inst.addOperand(MCOperand::createImm(CE->getValue()));
++    else
++      Inst.addOperand(MCOperand::createExpr(Expr));
++  }
++
++  void addRegOperands(MCInst &Inst, unsigned N) const {
++    assert(N == 1 && "Invalid number of operands!");
++    Inst.addOperand(MCOperand::createReg(getReg()));
++  }
++
++  void addImmOperands(MCInst &Inst, unsigned N) const {
++    assert(N == 1 && "Invalid number of operands!");
++    addExpr(Inst, getImm());
++  }
++
++  void addMemOperands(MCInst &Inst, unsigned N) const {
++    assert(N >= 1 && N <= 2 && "Invalid number of operands!");
++    int64_t Val = 0;
++    if (!Mem.Offset->evaluateAsAbsolute(Val))
++      report_fatal_error("Non-absolute offset not supported yet");
++    if (N == 1) {
++      Inst.addOperand(MCOperand::createImm(Val));
++    } else {
++      Inst.addOperand(MCOperand::createReg(Mem.BaseReg));
++      Inst.addOperand(MCOperand::createImm(Val));
++    }
++  }
++};
++} // namespace
++
++#define GET_REGISTER_MATCHER
++#define GET_MATCHER_IMPLEMENTATION
++#include "YaRISCGenAsmMatcher.inc"
++
++bool YaRISCAsmParser::parseRegister(MCRegister &Reg, SMLoc &StartLoc,
++                                    SMLoc &EndLoc) {
++  llvm_unreachable("YaRISC asm parser not yet implemented!");
++}
++
++ParseStatus YaRISCAsmParser::tryParseRegister(MCRegister &Reg, SMLoc &StartLoc,
++                                              SMLoc &EndLoc) {
++  llvm_unreachable("YaRISC asm parser not yet implemented!");
++}
++
++bool YaRISCAsmParser::matchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
++                                              OperandVector &Operands,
++                                              MCStreamer &Out,
++                                              uint64_t &ErrorInfo,
++                                              bool MatchingInlineAsm) {
++  llvm_unreachable("YaRISC asm parser not yet implemented!");
++}
++
++bool YaRISCAsmParser::parseInstruction(ParseInstructionInfo &Info,
++                                       StringRef Name, SMLoc NameLoc,
++                                       OperandVector &Operands) {
++  llvm_unreachable("YaRISC asm parser not yet implemented!");
++}
++
++extern "C" LLVM_ABI LLVM_EXTERNAL_VISIBILITY void
++LLVMInitializeYaRISCAsmParser() {
++  RegisterMCAsmParser<YaRISCAsmParser> A(getTheYaRISCTarget());
++}
+diff --git a/llvm/lib/Target/YaRISC/CMakeLists.txt b/llvm/lib/Target/YaRISC/CMakeLists.txt
+new file mode 100644
+index 000000000000..1b6470e6103b
+--- /dev/null
++++ b/llvm/lib/Target/YaRISC/CMakeLists.txt
+@@ -0,0 +1,50 @@
++add_llvm_component_group(YaRISC)
++
++set(LLVM_TARGET_DEFINITIONS YaRISC.td)
++
++tablegen(LLVM YaRISCGenAsmMatcher.inc -gen-asm-matcher)
++tablegen(LLVM YaRISCGenAsmWriter.inc -gen-asm-writer)
++tablegen(LLVM YaRISCGenCallingConv.inc -gen-callingconv)
++tablegen(LLVM YaRISCGenDAGISel.inc -gen-dag-isel)
++tablegen(LLVM YaRISCGenDisassemblerTables.inc -gen-disassembler)
++tablegen(LLVM YaRISCGenInstrInfo.inc -gen-instr-info)
++tablegen(LLVM YaRISCGenMCCodeEmitter.inc -gen-emitter)
++tablegen(LLVM YaRISCGenRegisterInfo.inc -gen-register-info)
++tablegen(LLVM YaRISCGenSDNodeInfo.inc -gen-sd-node-info)
++tablegen(LLVM YaRISCGenSearchableTables.inc -gen-searchable-tables)
++tablegen(LLVM YaRISCGenSubtargetInfo.inc -gen-subtarget)
++
++add_public_tablegen_target(YaRISCCommonTableGen)
++
++add_llvm_target(YaRISCCodeGen
++  YaRISCAsmPrinter.cpp
++  YaRISCInstrInfo.cpp
++  YaRISCISelDAGToDAG.cpp
++  YaRISCISelLowering.cpp
++  YaRISCFrameLowering.cpp
++  YaRISCRegisterInfo.cpp
++  YaRISCSelectionDAGInfo.cpp
++  YaRISCSubtarget.cpp
++  YaRISCTargetMachine.cpp
++
++  LINK_COMPONENTS
++  AsmPrinter
++  CodeGen
++  CodeGenTypes
++  Core
++  MC
++  SelectionDAG
++  YaRISCDesc
++  YaRISCInfo
++  Support
++  Target
++  TargetParser
++
++  ADD_TO_COMPONENT
++  YaRISC
++  )
++
++add_subdirectory(AsmParser)
++add_subdirectory(Disassembler)
++add_subdirectory(MCTargetDesc)
++add_subdirectory(TargetInfo)
+diff --git a/llvm/lib/Target/YaRISC/Disassembler/CMakeLists.txt b/llvm/lib/Target/YaRISC/Disassembler/CMakeLists.txt
+new file mode 100644
+index 000000000000..bd256b290d2f
+--- /dev/null
++++ b/llvm/lib/Target/YaRISC/Disassembler/CMakeLists.txt
+@@ -0,0 +1,12 @@
++add_llvm_component_library(LLVMYaRISCDisassembler
++  YaRISCDisassembler.cpp
++
++  LINK_COMPONENTS
++  MCDisassembler
++  MC
++  YaRISCInfo
++  Support
++
++  ADD_TO_COMPONENT
++  YaRISC
++  )
+diff --git a/llvm/lib/Target/YaRISC/Disassembler/YaRISCDisassembler.cpp b/llvm/lib/Target/YaRISC/Disassembler/YaRISCDisassembler.cpp
+new file mode 100644
+index 000000000000..74b9d275ad97
+--- /dev/null
++++ b/llvm/lib/Target/YaRISC/Disassembler/YaRISCDisassembler.cpp
+@@ -0,0 +1,64 @@
++//===- YaRISCDisassembler.cpp - Disassembler for YaRISC ---------*- C++ -*-===//
++//
++// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
++// See https://llvm.org/LICENSE.txt for license information.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++//
++//===----------------------------------------------------------------------===//
++//
++// This file is part of the YaRISC Disassembler.
++//
++//===----------------------------------------------------------------------===//
++
++#include "MCTargetDesc/YaRISCMCTargetDesc.h"
++#include "TargetInfo/YaRISCTargetInfo.h"
++#include "llvm/MC/MCAsmInfo.h"
++#include "llvm/MC/MCContext.h"
++#include "llvm/MC/MCDecoder.h"
++#include "llvm/MC/MCDecoderOps.h"
++#include "llvm/MC/MCDisassembler/MCDisassembler.h"
++#include "llvm/MC/MCInst.h"
++#include "llvm/MC/TargetRegistry.h"
++#include "llvm/Support/Compiler.h"
++#include "llvm/Support/Endian.h"
++
++using namespace llvm;
++using namespace llvm::MCD;
++
++#define DEBUG_TYPE "yarisc-disassembler"
++
++typedef MCDisassembler::DecodeStatus DecodeStatus;
++
++namespace {
++class YaRISCDisassembler : public MCDisassembler {
++public:
++  YaRISCDisassembler(const MCSubtargetInfo &STI, MCContext &Ctx)
++      : MCDisassembler(STI, Ctx) {}
++
++  ~YaRISCDisassembler() override = default;
++
++  DecodeStatus getInstruction(MCInst &Instr, uint64_t &Size,
++                              ArrayRef<uint8_t> Bytes, uint64_t Address,
++                              raw_ostream &CStream) const override;
++};
++} // namespace
++
++static MCDisassembler *createYaRISCDisassembler(const Target &T,
++                                                const MCSubtargetInfo &STI,
++                                                MCContext &Ctx) {
++  return new YaRISCDisassembler(STI, Ctx);
++}
++
++DecodeStatus YaRISCDisassembler::getInstruction(MCInst &Instr, uint64_t &Size,
++                                                ArrayRef<uint8_t> Bytes,
++                                                uint64_t Address,
++                                                raw_ostream &CStream) const {
++  llvm_unreachable("YaRISC disassembler not yet implemented!");
++}
++
++extern "C" LLVM_ABI LLVM_EXTERNAL_VISIBILITY void
++LLVMInitializeYaRISCDisassembler() {
++  // Register the disassembler.
++  TargetRegistry::RegisterMCDisassembler(getTheYaRISCTarget(),
++                                         createYaRISCDisassembler);
++}
+diff --git a/llvm/lib/Target/YaRISC/MCTargetDesc/CMakeLists.txt b/llvm/lib/Target/YaRISC/MCTargetDesc/CMakeLists.txt
+new file mode 100644
+index 000000000000..a6f0c4fec914
+--- /dev/null
++++ b/llvm/lib/Target/YaRISC/MCTargetDesc/CMakeLists.txt
+@@ -0,0 +1,18 @@
++add_llvm_component_library(LLVMYaRISCDesc
++  YaRISCAsmBackend.cpp
++  YaRISCELFObjectWriter.cpp
++  YaRISCInstPrinter.cpp
++  YaRISCMCAsmInfo.cpp
++  YaRISCMCCodeEmitter.cpp
++  YaRISCMCTargetDesc.cpp
++  YaRISCTargetStreamer.cpp
++
++  LINK_COMPONENTS
++  MC
++  YaRISCInfo
++  Support
++  TargetParser
++
++  ADD_TO_COMPONENT
++  YaRISC
++  )
+diff --git a/llvm/lib/Target/YaRISC/MCTargetDesc/YaRISCAsmBackend.cpp b/llvm/lib/Target/YaRISC/MCTargetDesc/YaRISCAsmBackend.cpp
+new file mode 100644
+index 000000000000..c335912ffd96
+--- /dev/null
++++ b/llvm/lib/Target/YaRISC/MCTargetDesc/YaRISCAsmBackend.cpp
+@@ -0,0 +1,145 @@
++//===-- YaRISCAsmBackend.cpp - YaRISC Assembler Backend -------------------===//
++//
++// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
++// See https://llvm.org/LICENSE.txt for license information.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++//
++//===----------------------------------------------------------------------===//
++
++#include "MCTargetDesc/YaRISCFixupKinds.h"
++#include "MCTargetDesc/YaRISCMCTargetDesc.h"
++#include "llvm/ADT/StringSwitch.h"
++#include "llvm/MC/MCAsmBackend.h"
++#include "llvm/MC/MCELFObjectWriter.h"
++#include "llvm/MC/MCExpr.h"
++#include "llvm/MC/MCObjectWriter.h"
++#include "llvm/MC/MCSubtargetInfo.h"
++#include "llvm/MC/MCValue.h"
++#include "llvm/MC/TargetRegistry.h"
++#include "llvm/Support/EndianStream.h"
++
++using namespace llvm;
++
++namespace {
++class YaRISCAsmBackend : public MCAsmBackend {
++public:
++  explicit YaRISCAsmBackend(const MCSubtargetInfo &STI)
++      : MCAsmBackend(STI.getTargetTriple().isLittleEndian()
++                         ? llvm::endianness::little
++                         : llvm::endianness::big) {}
++
++  std::optional<MCFixupKind> getFixupKind(StringRef Name) const override;
++  MCFixupKindInfo getFixupKindInfo(MCFixupKind Kind) const override;
++  void applyFixup(const MCFragment &, const MCFixup &, const MCValue &Target,
++                  uint8_t *Data, uint64_t Value, bool IsResolved) override;
++
++  unsigned getMinimumNopSize() const override { return 2; }
++
++  bool writeNopData(raw_ostream &OS, uint64_t Count,
++                    const MCSubtargetInfo *STI) const override {
++    // If the count is not 2-byte aligned, we must be writing data into the text
++    // section otherwise we have unaligned instructions.
++    OS.write_zeros(Count % 2);
++
++    uint64_t NumNops = Count / 2;
++    for (uint64_t i = 0; i != NumNops; ++i)
++      support::endian::write<uint16_t>(OS, 0x003f, Endian);
++
++    return true;
++  }
++};
++
++class ELFYaRISCAsmBackend : public YaRISCAsmBackend {
++  Triple::OSType OSType;
++
++public:
++  ELFYaRISCAsmBackend(const MCSubtargetInfo &STI, Triple::OSType OSType)
++      : YaRISCAsmBackend(STI), OSType(OSType) {}
++
++  std::unique_ptr<MCObjectTargetWriter>
++  createObjectTargetWriter() const override {
++    uint8_t OSABI = MCELFObjectTargetWriter::getOSABI(OSType);
++    return createYaRISCELFObjectWriter(OSABI);
++  }
++};
++} // namespace
++
++std::optional<MCFixupKind>
++YaRISCAsmBackend::getFixupKind(StringRef Name) const {
++  unsigned Type;
++  Type = llvm::StringSwitch<unsigned>(Name)
++#define ELF_RELOC(X, Y) .Case(#X, Y)
++#include "llvm/BinaryFormat/ELFRelocs/YaRISC.def"
++#undef ELF_RELOC
++             .Case("BFD_RELOC_NONE", ELF::R_YARISC_NONE)
++             .Case("BFD_RELOC_8", ELF::R_YARISC_8)
++             .Case("BFD_RELOC_16", ELF::R_YARISC_16)
++             .Default(-1u);
++  if (Type == -1u)
++    return std::nullopt;
++  return static_cast<MCFixupKind>(FirstLiteralRelocationKind + Type);
++}
++
++MCFixupKindInfo YaRISCAsmBackend::getFixupKindInfo(MCFixupKind Kind) const {
++  assert(Endian == llvm::endianness::little && "Unexpected endianness");
++  // clang-format off
++  const static MCFixupKindInfo Infos[YaRISC::NumTargetFixupKinds] = {
++    // This table *must* be in same the order of fixup_* kinds in
++    // YaRISCFixupKinds.h.
++    //
++    // name                        offset  bits    flags
++    { "fixup_yarisc_call16",       0,      16,     0 },
++    { "fixup_yarisc_pcrel32",      0,      32,     0 },
++  };
++  // clang-format on
++
++  if (!mc::isRelocation(Kind)) {
++    if (Kind < FirstTargetFixupKind)
++      return MCAsmBackend::getFixupKindInfo(Kind);
++
++    assert(unsigned(Kind - FirstTargetFixupKind) <
++               YaRISC::NumTargetFixupKinds &&
++           "Invalid kind!");
++    return Infos[Kind - FirstTargetFixupKind];
++  }
++
++  MCFixupKindInfo Info{};
++  switch (uint16_t(Kind)) {
++  case ELF::R_YARISC_8:
++  case ELF::R_YARISC_DISP8:
++    Info = {"", 0, 8, 0};
++    break;
++  case ELF::R_YARISC_16:
++  case ELF::R_YARISC_DISP16:
++    Info = {"", 10, 16, 0};
++    break;
++  case ELF::R_YARISC_PCREL32:
++    Info = {"", 0, 32, 0};
++    break;
++  }
++  return Info;
++}
++
++void YaRISCAsmBackend::applyFixup(const MCFragment &F, const MCFixup &Fixup,
++                                  const MCValue &Target, uint8_t *Data,
++                                  uint64_t Value, bool IsResolved) {
++  assert(Endian == llvm::endianness::little && "Unexpected endianness");
++  maybeAddReloc(F, Fixup, Target, Value, IsResolved);
++  if (!IsResolved)
++    return;
++  if (!Value)
++    return;
++
++  MCFixupKind Kind = Fixup.getKind();
++  unsigned NumBytes = (getFixupKindInfo(Kind).TargetSize + 7) / 8;
++
++  for (unsigned I = 0; I != NumBytes; ++I)
++    Data[I] |= uint8_t((Value >> (I * 8)) & 0xff);
++}
++
++MCAsmBackend *llvm::createYaRISCAsmBackend(const Target &T,
++                                           const MCSubtargetInfo &STI,
++                                           const MCRegisterInfo &MRI,
++                                           const MCTargetOptions &Options) {
++  return new ELFYaRISCAsmBackend(STI, STI.getTargetTriple().getOS());
++}
+diff --git a/llvm/lib/Target/YaRISC/MCTargetDesc/YaRISCELFObjectWriter.cpp b/llvm/lib/Target/YaRISC/MCTargetDesc/YaRISCELFObjectWriter.cpp
+new file mode 100644
+index 000000000000..453988ecb340
+--- /dev/null
++++ b/llvm/lib/Target/YaRISC/MCTargetDesc/YaRISCELFObjectWriter.cpp
+@@ -0,0 +1,83 @@
++//===-- YaRISCELFObjectWriter.cpp - YaRISC ELF Writer ---------------------===//
++//
++// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
++// See https://llvm.org/LICENSE.txt for license information.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++//
++//===----------------------------------------------------------------------===//
++
++#include "MCTargetDesc/YaRISCMCTargetDesc.h"
++#include "llvm/MC/MCContext.h"
++#include "llvm/MC/MCELFObjectWriter.h"
++#include "llvm/MC/MCExpr.h"
++#include "llvm/MC/MCObjectFileInfo.h"
++#include "llvm/MC/MCObjectWriter.h"
++#include "llvm/MC/MCValue.h"
++#include "llvm/Support/ErrorHandling.h"
++
++using namespace llvm;
++
++namespace {
++class YaRISCELFObjectWriter : public MCELFObjectTargetWriter {
++public:
++  explicit YaRISCELFObjectWriter(uint8_t OSABI)
++      : MCELFObjectTargetWriter(
++            /*Is64Bit*/ false, OSABI, ELF::EM_NONE,
++            /*HasRelocationAddend*/ false) {}
++
++  ~YaRISCELFObjectWriter() override = default;
++
++protected:
++  unsigned getRelocType(const MCFixup &Fixup, const MCValue &Target,
++                        bool IsPCRel) const override;
++};
++} // namespace
++
++unsigned YaRISCELFObjectWriter::getRelocType(const MCFixup &Fixup,
++                                             const MCValue &Target,
++                                             bool IsPCRel) const {
++  auto Kind = Fixup.getKind();
++  if (mc::isRelocation(Kind))
++    return Kind;
++
++  if (const auto *SExpr = dyn_cast<MCSpecifierExpr>(Fixup.getValue())) {
++    switch (SExpr->getSpecifier()) {
++    case ELF::R_YARISC_8:
++    case ELF::R_YARISC_16:
++    case ELF::R_YARISC_DISP8:
++    case ELF::R_YARISC_DISP16:
++      return SExpr->getSpecifier();
++    default:
++      break;
++    }
++  }
++
++  if (IsPCRel) {
++    switch (Kind) {
++    default:
++      llvm_unreachable("Unimplemented fixup -> relocation");
++    case FK_Data_1:
++      return ELF::R_YARISC_DISP8;
++    case FK_Data_2:
++      return ELF::R_YARISC_DISP16;
++    }
++  }
++
++  switch (Kind) {
++  default:
++    llvm_unreachable("Unimplemented fixup -> relocation");
++  case FK_NONE:
++    return ELF::R_YARISC_NONE;
++  case FK_Data_1:
++    return ELF::R_YARISC_8;
++  case FK_Data_2:
++    return ELF::R_YARISC_16;
++  }
++
++  return ELF::R_YARISC_NONE;
++}
++
++std::unique_ptr<MCObjectTargetWriter>
++llvm::createYaRISCELFObjectWriter(uint8_t OSABI) {
++  return std::make_unique<YaRISCELFObjectWriter>(OSABI);
++}
+diff --git a/llvm/lib/Target/YaRISC/MCTargetDesc/YaRISCFixupKinds.h b/llvm/lib/Target/YaRISC/MCTargetDesc/YaRISCFixupKinds.h
+new file mode 100644
+index 000000000000..cfe52a6d516a
+--- /dev/null
++++ b/llvm/lib/Target/YaRISC/MCTargetDesc/YaRISCFixupKinds.h
+@@ -0,0 +1,27 @@
++//===-- YaRISCFixupKinds.h - YaRISC Specific Fixup Entries ------*- C++ -*-===//
++//
++// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
++// See https://llvm.org/LICENSE.txt for license information.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++//
++//===----------------------------------------------------------------------===//
++
++#ifndef LLVM_LIB_TARGET_YARISC_MCTARGETDESC_YARISCFIXUPKINDS_H
++#define LLVM_LIB_TARGET_YARISC_MCTARGETDESC_YARISCFIXUPKINDS_H
++
++#include "llvm/MC/MCFixup.h"
++
++namespace llvm {
++namespace YaRISC {
++enum Fixups {
++  fixup_yarisc_call16 = FirstTargetFixupKind,
++  fixup_yarisc_pcrel32, // for DWARF
++
++  // Marker
++  LastTargetFixupKind,
++  NumTargetFixupKinds = LastTargetFixupKind - FirstTargetFixupKind
++};
++} // namespace YaRISC
++} // namespace llvm
++
++#endif
+diff --git a/llvm/lib/Target/YaRISC/MCTargetDesc/YaRISCInstPrinter.cpp b/llvm/lib/Target/YaRISC/MCTargetDesc/YaRISCInstPrinter.cpp
+new file mode 100644
+index 000000000000..3fc49aec2851
+--- /dev/null
++++ b/llvm/lib/Target/YaRISC/MCTargetDesc/YaRISCInstPrinter.cpp
+@@ -0,0 +1,57 @@
++//===-- YaRISCInstPrinter.cpp - Convert YaRISC MCInst to assembly syntax ---==//
++//
++// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
++// See https://llvm.org/LICENSE.txt for license information.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++//
++//===----------------------------------------------------------------------===//
++//
++// This class prints an YaRISC MCInst to a .s file.
++//
++//===----------------------------------------------------------------------===//
++
++#include "YaRISCInstPrinter.h"
++#include "YaRISC.h"
++#include "llvm/MC/MCAsmInfo.h"
++#include "llvm/MC/MCExpr.h"
++#include "llvm/MC/MCInst.h"
++#include "llvm/MC/MCSubtargetInfo.h"
++#include "llvm/Support/raw_ostream.h"
++using namespace llvm;
++
++#define DEBUG_TYPE "yarisc-asm-printer"
++
++#define GET_INSTRUCTION_NAME
++#define PRINT_ALIAS_INSTR
++#include "YaRISCGenAsmWriter.inc"
++
++void YaRISCInstPrinter::printRegName(raw_ostream &OS, MCRegister Reg) {
++  OS << getRegisterName(Reg);
++}
++
++void YaRISCInstPrinter::printInst(const MCInst *MI, uint64_t Address,
++                                  StringRef Annot, const MCSubtargetInfo &STI,
++                                  raw_ostream &O) {
++  if (!printAliasInstr(MI, Address, STI, O))
++    printInstruction(MI, Address, STI, O);
++  printAnnotation(O, Annot);
++}
++
++void YaRISCInstPrinter::printOperand(const MCInst *MI, int opNum,
++                                     const MCSubtargetInfo &STI,
++                                     raw_ostream &O) {
++  const MCOperand &MO = MI->getOperand(opNum);
++
++  if (MO.isReg()) {
++    printRegName(O, MO.getReg());
++    return;
++  }
++
++  if (MO.isImm()) {
++    markup(O, Markup::Immediate) << formatImm(MO.getImm());
++    return;
++  }
++
++  assert(MO.isExpr() && "Unknown operand kind in printOperand");
++  MAI.printExpr(O, *MO.getExpr());
++}
+diff --git a/llvm/lib/Target/YaRISC/MCTargetDesc/YaRISCInstPrinter.h b/llvm/lib/Target/YaRISC/MCTargetDesc/YaRISCInstPrinter.h
+new file mode 100644
+index 000000000000..68e429e62609
+--- /dev/null
++++ b/llvm/lib/Target/YaRISC/MCTargetDesc/YaRISCInstPrinter.h
+@@ -0,0 +1,46 @@
++//===-- YaRISCInstPrinter.h - Convert YaRISC MCInst to assembly syntax ----===//
++//
++// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
++// See https://llvm.org/LICENSE.txt for license information.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++//
++//===----------------------------------------------------------------------===//
++//
++// This class prints an YaRISC MCInst to a .s file.
++//
++//===----------------------------------------------------------------------===//
++
++#ifndef LLVM_LIB_TARGET_YARISC_MCTARGETDESC_YARISCINSTPRINTER_H
++#define LLVM_LIB_TARGET_YARISC_MCTARGETDESC_YARISCINSTPRINTER_H
++
++#include "YaRISCMCTargetDesc.h"
++#include "llvm/MC/MCInstPrinter.h"
++
++namespace llvm {
++
++class YaRISCInstPrinter : public MCInstPrinter {
++public:
++  YaRISCInstPrinter(const MCAsmInfo &MAI, const MCInstrInfo &MII,
++                    const MCRegisterInfo &MRI)
++      : MCInstPrinter(MAI, MII, MRI) {}
++
++  void printRegName(raw_ostream &OS, MCRegister Reg) override;
++  void printInst(const MCInst *MI, uint64_t Address, StringRef Annot,
++                 const MCSubtargetInfo &STI, raw_ostream &O) override;
++
++  // Autogenerated by tblgen.
++  std::pair<const char *, uint64_t>
++  getMnemonic(const MCInst &MI) const override;
++  void printInstruction(const MCInst *MI, uint64_t Address,
++                        const MCSubtargetInfo &STI, raw_ostream &O);
++  bool printAliasInstr(const MCInst *MI, uint64_t Address,
++                       const MCSubtargetInfo &STI, raw_ostream &O);
++  static const char *getRegisterName(MCRegister Reg);
++
++  void printOperand(const MCInst *MI, int opNum, const MCSubtargetInfo &STI,
++                    raw_ostream &OS);
++};
++
++} // namespace llvm
++
++#endif // LLVM_LIB_TARGET_YARISC_MCTARGETDESC_YARISCINSTPRINTER_H
+diff --git a/llvm/lib/Target/YaRISC/MCTargetDesc/YaRISCMCAsmInfo.cpp b/llvm/lib/Target/YaRISC/MCTargetDesc/YaRISCMCAsmInfo.cpp
+new file mode 100644
+index 000000000000..33feecb0613d
+--- /dev/null
++++ b/llvm/lib/Target/YaRISC/MCTargetDesc/YaRISCMCAsmInfo.cpp
+@@ -0,0 +1,68 @@
++//===- YaRISCMCAsmInfo.cpp - YaRISC asm properties ------------------------===//
++//
++// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
++// See https://llvm.org/LICENSE.txt for license information.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++//
++//===----------------------------------------------------------------------===//
++//
++// This file contains the declarations of the YaRISCMCAsmInfo properties.
++//
++//===----------------------------------------------------------------------===//
++
++#include "YaRISCMCAsmInfo.h"
++#include "llvm/ADT/StringSwitch.h"
++#include "llvm/BinaryFormat/Dwarf.h"
++#include "llvm/BinaryFormat/ELF.h"
++#include "llvm/MC/MCExpr.h"
++#include "llvm/MC/MCStreamer.h"
++#include "llvm/TargetParser/Triple.h"
++
++using namespace llvm;
++
++void YaRISCELFMCAsmInfo::anchor() {}
++
++YaRISCELFMCAsmInfo::YaRISCELFMCAsmInfo(const Triple &TheTriple) {
++  CodePointerSize = CalleeSaveStackSlotSize = 2;
++  MinInstAlignment = 2;
++  MaxInstLength = 4;
++}
++
++void YaRISCELFMCAsmInfo::printSpecifierExpr(raw_ostream &OS,
++                                            const MCSpecifierExpr &Expr) const {
++  StringRef S = YaRISC::getSpecifierName(Expr.getSpecifier());
++  if (!S.empty())
++    OS << '%' << S << '(';
++  printExpr(OS, *Expr.getSubExpr());
++  if (!S.empty())
++    OS << ')';
++}
++
++StringRef YaRISC::getSpecifierName(uint16_t S) {
++  switch (S) {
++  default:
++    llvm_unreachable("Unhandled YaRISC specifier");
++  case 0:
++    return {};
++  case ELF::R_YARISC_8:
++    return "8";
++  case ELF::R_YARISC_16:
++    return "16";
++  case ELF::R_YARISC_DISP8:
++    return "disp8";
++  case ELF::R_YARISC_DISP16:
++    return "disp16";
++  case ELF::R_YARISC_PCREL32:
++    return "pcrel32";
++  }
++}
++
++uint16_t YaRISC::parseSpecifier(StringRef name) {
++  return StringSwitch<uint16_t>(name)
++      .Case("8", ELF::R_YARISC_8)
++      .Case("16", ELF::R_YARISC_16)
++      .Case("disp8", ELF::R_YARISC_DISP8)
++      .Case("disp16", ELF::R_YARISC_DISP16)
++      .Case("pcrel32", ELF::R_YARISC_PCREL32)
++      .Default(0);
++}
+diff --git a/llvm/lib/Target/YaRISC/MCTargetDesc/YaRISCMCAsmInfo.h b/llvm/lib/Target/YaRISC/MCTargetDesc/YaRISCMCAsmInfo.h
+new file mode 100644
+index 000000000000..dde0d03ac46f
+--- /dev/null
++++ b/llvm/lib/Target/YaRISC/MCTargetDesc/YaRISCMCAsmInfo.h
+@@ -0,0 +1,39 @@
++//===- YaRISCMCAsmInfo.h - YaRISC asm properties ---------------*- C++ -*--===//
++//
++// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
++// See https://llvm.org/LICENSE.txt for license information.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++//
++//===----------------------------------------------------------------------===//
++//
++// This file contains the declaration of the YaRISCMCAsmInfo class.
++//
++//===----------------------------------------------------------------------===//
++
++#ifndef LLVM_LIB_TARGET_YARISC_MCTARGETDESC_YARISCMCASMINFO_H
++#define LLVM_LIB_TARGET_YARISC_MCTARGETDESC_YARISCMCASMINFO_H
++
++#include "llvm/MC/MCAsmInfoELF.h"
++
++namespace llvm {
++
++class Triple;
++
++class YaRISCELFMCAsmInfo : public MCAsmInfoELF {
++  void anchor() override;
++
++public:
++  explicit YaRISCELFMCAsmInfo(const Triple &TheTriple);
++
++  void printSpecifierExpr(raw_ostream &OS,
++                          const MCSpecifierExpr &Expr) const override;
++};
++
++namespace YaRISC {
++uint16_t parseSpecifier(StringRef name);
++StringRef getSpecifierName(uint16_t S);
++} // namespace YaRISC
++
++} // namespace llvm
++
++#endif // LLVM_LIB_TARGET_YARISC_MCTARGETDESC_YARISCMCASMINFO_H
+diff --git a/llvm/lib/Target/YaRISC/MCTargetDesc/YaRISCMCCodeEmitter.cpp b/llvm/lib/Target/YaRISC/MCTargetDesc/YaRISCMCCodeEmitter.cpp
+new file mode 100644
+index 000000000000..50435c74c3c2
+--- /dev/null
++++ b/llvm/lib/Target/YaRISC/MCTargetDesc/YaRISCMCCodeEmitter.cpp
+@@ -0,0 +1,127 @@
++//===-- YaRISCMCCodeEmitter.cpp - Convert YaRISC code to machine code -----===//
++//
++// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
++// See https://llvm.org/LICENSE.txt for license information.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++//
++//===----------------------------------------------------------------------===//
++//
++// This file implements the YaRISCMCCodeEmitter class.
++//
++//===----------------------------------------------------------------------===//
++
++#include "YaRISCMCTargetDesc.h"
++#include "llvm/ADT/SmallVector.h"
++#include "llvm/ADT/Statistic.h"
++#include "llvm/BinaryFormat/ELF.h"
++#include "llvm/MC/MCAsmInfo.h"
++#include "llvm/MC/MCCodeEmitter.h"
++#include "llvm/MC/MCContext.h"
++#include "llvm/MC/MCExpr.h"
++#include "llvm/MC/MCFixup.h"
++#include "llvm/MC/MCInst.h"
++#include "llvm/MC/MCInstrInfo.h"
++#include "llvm/MC/MCObjectFileInfo.h"
++#include "llvm/MC/MCRegisterInfo.h"
++#include "llvm/MC/MCSubtargetInfo.h"
++#include "llvm/MC/MCSymbol.h"
++#include "llvm/Support/Casting.h"
++#include "llvm/Support/EndianStream.h"
++#include <cassert>
++#include <cstdint>
++
++using namespace llvm;
++
++#define DEBUG_TYPE "yarisc-mccodeemitter"
++
++STATISTIC(MCNumEmitted, "Number of MC instructions emitted");
++
++namespace {
++class YaRISCMCCodeEmitter : public MCCodeEmitter {
++  const MCInstrInfo &MCII;
++  MCContext &Ctx;
++
++public:
++  YaRISCMCCodeEmitter(const MCInstrInfo &mcii, MCContext &ctx)
++      : MCII(mcii), Ctx(ctx) {}
++
++  YaRISCMCCodeEmitter(const YaRISCMCCodeEmitter &) = delete;
++  YaRISCMCCodeEmitter &operator=(const YaRISCMCCodeEmitter &) = delete;
++
++  ~YaRISCMCCodeEmitter() override = default;
++
++  void encodeInstruction(const MCInst &MI, SmallVectorImpl<char> &CB,
++                         SmallVectorImpl<MCFixup> &Fixups,
++                         const MCSubtargetInfo &STI) const override;
++
++  // getBinaryCodeForInstr - TableGen'erated function for getting the
++  // binary encoding for an instruction.
++  uint64_t getBinaryCodeForInstr(const MCInst &MI,
++                                 SmallVectorImpl<MCFixup> &Fixups,
++                                 const MCSubtargetInfo &STI) const;
++
++  /// getMachineOpValue - Return binary encoding of operand. If the machine
++  /// operand requires relocation, record the relocation and return zero.
++  unsigned getMachineOpValue(const MCInst &MI, const MCOperand &MO,
++                             SmallVectorImpl<MCFixup> &Fixups,
++                             const MCSubtargetInfo &STI) const;
++};
++} // namespace
++
++void YaRISCMCCodeEmitter::encodeInstruction(const MCInst &MI,
++                                            SmallVectorImpl<char> &CB,
++                                            SmallVectorImpl<MCFixup> &Fixups,
++                                            const MCSubtargetInfo &STI) const {
++  uint64_t Binary = getBinaryCodeForInstr(MI, Fixups, STI);
++  unsigned Size = MCII.get(MI.getOpcode()).getSize();
++  auto Endianness = Ctx.getAsmInfo()->isLittleEndian()
++                        ? llvm::endianness::little
++                        : llvm::endianness::big;
++
++  switch (Size) {
++  default:
++    llvm_unreachable("Unexpected instruction size");
++  case 2:
++    support::endian::write<uint16_t>(CB, Binary, Endianness);
++    break;
++  case 4:
++    support::endian::write<uint32_t>(CB, Binary, Endianness);
++    break;
++  }
++
++  ++MCNumEmitted;
++}
++
++unsigned
++YaRISCMCCodeEmitter::getMachineOpValue(const MCInst &MI, const MCOperand &MO,
++                                       SmallVectorImpl<MCFixup> &Fixups,
++                                       const MCSubtargetInfo &STI) const {
++  if (MO.isReg())
++    return Ctx.getRegisterInfo()->getEncodingValue(MO.getReg());
++
++  if (MO.isImm())
++    return MO.getImm();
++
++  assert(MO.isExpr());
++  const MCExpr *Expr = MO.getExpr();
++  if (auto *SExpr = dyn_cast<MCSpecifierExpr>(Expr)) {
++    uint16_t Kind = SExpr->getSpecifier();
++    bool PCRel = (Kind == ELF::R_YARISC_PCREL32);
++    Fixups.push_back(MCFixup::create(0, Expr, Kind, PCRel));
++    return 0;
++  }
++
++  int64_t Res;
++  if (Expr->evaluateAsAbsolute(Res))
++    return Res;
++
++  llvm_unreachable("Unhandled expression!");
++  return 0;
++}
++
++#include "YaRISCGenMCCodeEmitter.inc"
++
++MCCodeEmitter *llvm::createYaRISCMCCodeEmitter(const MCInstrInfo &MCII,
++                                               MCContext &Ctx) {
++  return new YaRISCMCCodeEmitter(MCII, Ctx);
++}
+diff --git a/llvm/lib/Target/YaRISC/MCTargetDesc/YaRISCMCTargetDesc.cpp b/llvm/lib/Target/YaRISC/MCTargetDesc/YaRISCMCTargetDesc.cpp
+new file mode 100644
+index 000000000000..2e892787d39f
+--- /dev/null
++++ b/llvm/lib/Target/YaRISC/MCTargetDesc/YaRISCMCTargetDesc.cpp
+@@ -0,0 +1,126 @@
++//===-- YaRISCMCTargetDesc.cpp - YaRISC Target Descriptions ---------------===//
++//
++// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
++// See https://llvm.org/LICENSE.txt for license information.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++//
++//===----------------------------------------------------------------------===//
++//
++// This file provides YaRISC specific target descriptions.
++//
++//===----------------------------------------------------------------------===//
++
++#include "YaRISCMCTargetDesc.h"
++#include "TargetInfo/YaRISCTargetInfo.h"
++#include "YaRISCInstPrinter.h"
++#include "YaRISCMCAsmInfo.h"
++#include "YaRISCTargetStreamer.h"
++#include "llvm/MC/MCInstrInfo.h"
++#include "llvm/MC/MCRegisterInfo.h"
++#include "llvm/MC/MCSubtargetInfo.h"
++#include "llvm/MC/TargetRegistry.h"
++#include "llvm/Support/Compiler.h"
++#include "llvm/Support/ErrorHandling.h"
++
++using namespace llvm;
++
++#define GET_INSTRINFO_MC_DESC
++#define ENABLE_INSTR_PREDICATE_VERIFIER
++#include "YaRISCGenInstrInfo.inc"
++
++#define GET_SUBTARGETINFO_MC_DESC
++#include "YaRISCGenSubtargetInfo.inc"
++
++#define GET_REGINFO_MC_DESC
++#include "YaRISCGenRegisterInfo.inc"
++
++static MCAsmInfo *createYaRISCMCAsmInfo(const MCRegisterInfo &MRI,
++                                        const Triple &TT,
++                                        const MCTargetOptions &Options) {
++  MCAsmInfo *MAI = new YaRISCELFMCAsmInfo(TT);
++  // Initial state of the frame pointer is SP.
++  unsigned Reg = MRI.getDwarfRegNum(YaRISC::SP, true);
++  MAI->addInitialFrameState(MCCFIInstruction::cfiDefCfa(nullptr, Reg, 0));
++  return MAI;
++}
++
++static MCInstrInfo *createYaRISCMCInstrInfo() {
++  MCInstrInfo *X = new MCInstrInfo();
++  InitYaRISCMCInstrInfo(X);
++  return X;
++}
++
++static MCRegisterInfo *createYaRISCMCRegisterInfo(const Triple &TT) {
++  MCRegisterInfo *X = new MCRegisterInfo();
++  InitYaRISCMCRegisterInfo(X, YaRISC::NoRegister, 0, 0, YaRISC::IP);
++  return X;
++}
++
++static MCSubtargetInfo *
++createYaRISCMCSubtargetInfo(const Triple &TT, StringRef CPU, StringRef FS) {
++  if (CPU.empty())
++    CPU = "minimal";
++
++  MCSubtargetInfo *STI =
++      createYaRISCMCSubtargetInfoImpl(TT, CPU, /*TuneCPU=*/CPU, FS);
++
++  return STI;
++}
++
++static MCTargetStreamer *
++createObjectTargetStreamer(MCStreamer &S, const MCSubtargetInfo &STI) {
++  return new YaRISCTargetELFStreamer(S, STI);
++}
++
++static MCTargetStreamer *createTargetAsmStreamer(MCStreamer &S,
++                                                 formatted_raw_ostream &OS,
++                                                 MCInstPrinter *InstPrint) {
++  return new YaRISCTargetAsmStreamer(S, OS);
++}
++
++static MCTargetStreamer *createNullTargetStreamer(MCStreamer &S) {
++  return new YaRISCTargetStreamer(S);
++}
++
++static MCInstPrinter *createYaRISCMCInstPrinter(const Triple &T,
++                                                unsigned SyntaxVariant,
++                                                const MCAsmInfo &MAI,
++                                                const MCInstrInfo &MII,
++                                                const MCRegisterInfo &MRI) {
++  return new YaRISCInstPrinter(MAI, MII, MRI);
++}
++
++extern "C" LLVM_ABI LLVM_EXTERNAL_VISIBILITY void
++LLVMInitializeYaRISCTargetMC() {
++  Target &T = getTheYaRISCTarget();
++
++  // Register the MC asm info.
++  RegisterMCAsmInfoFn X(T, createYaRISCMCAsmInfo);
++
++  // Register the MC instruction info.
++  TargetRegistry::RegisterMCInstrInfo(T, createYaRISCMCInstrInfo);
++
++  // Register the MC register info.
++  TargetRegistry::RegisterMCRegInfo(T, createYaRISCMCRegisterInfo);
++
++  // Register the MC subtarget info.
++  TargetRegistry::RegisterMCSubtargetInfo(T, createYaRISCMCSubtargetInfo);
++
++  // Register the MC Code Emitter.
++  TargetRegistry::RegisterMCCodeEmitter(T, createYaRISCMCCodeEmitter);
++
++  // Register the asm backend.
++  TargetRegistry::RegisterMCAsmBackend(T, createYaRISCAsmBackend);
++
++  // Register the object target streamer.
++  TargetRegistry::RegisterObjectTargetStreamer(T, createObjectTargetStreamer);
++
++  // Register the asm streamer.
++  TargetRegistry::RegisterAsmTargetStreamer(T, createTargetAsmStreamer);
++
++  // Register the null streamer.
++  TargetRegistry::RegisterNullTargetStreamer(T, createNullTargetStreamer);
++
++  // Register the MCInstPrinter
++  TargetRegistry::RegisterMCInstPrinter(T, createYaRISCMCInstPrinter);
++}
+diff --git a/llvm/lib/Target/YaRISC/MCTargetDesc/YaRISCMCTargetDesc.h b/llvm/lib/Target/YaRISC/MCTargetDesc/YaRISCMCTargetDesc.h
+new file mode 100644
+index 000000000000..2e88315b2fdd
+--- /dev/null
++++ b/llvm/lib/Target/YaRISC/MCTargetDesc/YaRISCMCTargetDesc.h
+@@ -0,0 +1,59 @@
++//===-- YaRISCMCTargetDesc.h - YaRISC Target Descriptions -------*- C++ -*-===//
++//
++// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
++// See https://llvm.org/LICENSE.txt for license information.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++//
++//===----------------------------------------------------------------------===//
++//
++// This file provides YaRISC specific target descriptions.
++//
++//===----------------------------------------------------------------------===//
++
++#ifndef LLVM_LIB_TARGET_YARISC_MCTARGETDESC_YARISCMCTARGETDESC_H
++#define LLVM_LIB_TARGET_YARISC_MCTARGETDESC_YARISCMCTARGETDESC_H
++
++#include "llvm/ADT/StringRef.h"
++#include "llvm/Support/DataTypes.h"
++
++#include <memory>
++
++namespace llvm {
++class MCAsmBackend;
++class MCCodeEmitter;
++class MCContext;
++class MCInstrInfo;
++class MCObjectTargetWriter;
++class MCRegisterInfo;
++class MCSubtargetInfo;
++class MCTargetOptions;
++class Target;
++class Triple;
++
++MCCodeEmitter *createYaRISCMCCodeEmitter(const MCInstrInfo &MCII,
++                                         MCContext &Ctx);
++MCAsmBackend *createYaRISCAsmBackend(const Target &T,
++                                     const MCSubtargetInfo &STI,
++                                     const MCRegisterInfo &MRI,
++                                     const MCTargetOptions &Options);
++std::unique_ptr<MCObjectTargetWriter>
++createYaRISCELFObjectWriter(uint8_t OSABI);
++
++} // namespace llvm
++
++// Defines symbolic names for YaRISC registers. This defines a mapping from
++// register name to register number.
++//
++#define GET_REGINFO_ENUM
++#include "YaRISCGenRegisterInfo.inc"
++
++// Defines symbolic names for the YaRISC instructions.
++//
++#define GET_INSTRINFO_ENUM
++#define GET_INSTRINFO_MC_HELPER_DECLS
++#include "YaRISCGenInstrInfo.inc"
++
++#define GET_SUBTARGETINFO_ENUM
++#include "YaRISCGenSubtargetInfo.inc"
++
++#endif // LLVM_LIB_TARGET_YARISC_MCTARGETDESC_YARISCMCTARGETDESC_H
+diff --git a/llvm/lib/Target/YaRISC/MCTargetDesc/YaRISCTargetStreamer.cpp b/llvm/lib/Target/YaRISC/MCTargetDesc/YaRISCTargetStreamer.cpp
+new file mode 100644
+index 000000000000..2ddcccd745d1
+--- /dev/null
++++ b/llvm/lib/Target/YaRISC/MCTargetDesc/YaRISCTargetStreamer.cpp
+@@ -0,0 +1,33 @@
++//===-- YaRISCTargetStreamer.cpp - YaRISC Target Streamer Methods ---------===//
++//
++// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
++// See https://llvm.org/LICENSE.txt for license information.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++//
++//===----------------------------------------------------------------------===//
++//
++// This file provides YaRISC specific target streamer methods.
++//
++//===----------------------------------------------------------------------===//
++
++#include "YaRISCTargetStreamer.h"
++
++using namespace llvm;
++
++// Pin vtable to this file.
++void YaRISCTargetStreamer::anchor() {}
++
++YaRISCTargetStreamer::YaRISCTargetStreamer(MCStreamer &S)
++    : MCTargetStreamer(S) {}
++
++YaRISCTargetAsmStreamer::YaRISCTargetAsmStreamer(MCStreamer &S,
++                                                 formatted_raw_ostream &OS)
++    : YaRISCTargetStreamer(S), OS(OS) {}
++
++YaRISCTargetELFStreamer::YaRISCTargetELFStreamer(MCStreamer &S,
++                                                 const MCSubtargetInfo &STI)
++    : YaRISCTargetStreamer(S) {}
++
++MCELFStreamer &YaRISCTargetELFStreamer::getStreamer() {
++  return static_cast<MCELFStreamer &>(Streamer);
++}
+diff --git a/llvm/lib/Target/YaRISC/MCTargetDesc/YaRISCTargetStreamer.h b/llvm/lib/Target/YaRISC/MCTargetDesc/YaRISCTargetStreamer.h
+new file mode 100644
+index 000000000000..f52085a768a0
+--- /dev/null
++++ b/llvm/lib/Target/YaRISC/MCTargetDesc/YaRISCTargetStreamer.h
+@@ -0,0 +1,43 @@
++//===-- YaRISCTargetStreamer.h - YaRISC Target Streamer --------*- C++ -*--===//
++//
++// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
++// See https://llvm.org/LICENSE.txt for license information.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++//
++//===----------------------------------------------------------------------===//
++
++#ifndef LLVM_LIB_TARGET_YARISC_MCTARGETDESC_YARISCTARGETSTREAMER_H
++#define LLVM_LIB_TARGET_YARISC_MCTARGETDESC_YARISCTARGETSTREAMER_H
++
++#include "llvm/MC/MCELFStreamer.h"
++#include "llvm/MC/MCStreamer.h"
++
++namespace llvm {
++
++class formatted_raw_ostream;
++
++class YaRISCTargetStreamer : public MCTargetStreamer {
++  virtual void anchor();
++
++public:
++  explicit YaRISCTargetStreamer(MCStreamer &S);
++};
++
++// This part is for ascii assembly output
++class YaRISCTargetAsmStreamer : public YaRISCTargetStreamer {
++  formatted_raw_ostream &OS;
++
++public:
++  YaRISCTargetAsmStreamer(MCStreamer &S, formatted_raw_ostream &OS);
++};
++
++// This part is for ELF object output
++class YaRISCTargetELFStreamer : public YaRISCTargetStreamer {
++public:
++  YaRISCTargetELFStreamer(MCStreamer &S, const MCSubtargetInfo &STI);
++  MCELFStreamer &getStreamer();
++};
++
++} // namespace llvm
++
++#endif // LLVM_LIB_TARGET_YARISC_MCTARGETDESC_YARISCTARGETSTREAMER_H
+diff --git a/llvm/lib/Target/YaRISC/TargetInfo/CMakeLists.txt b/llvm/lib/Target/YaRISC/TargetInfo/CMakeLists.txt
+new file mode 100644
+index 000000000000..c13213c7ccfa
+--- /dev/null
++++ b/llvm/lib/Target/YaRISC/TargetInfo/CMakeLists.txt
+@@ -0,0 +1,10 @@
++add_llvm_component_library(LLVMYaRISCInfo
++  YaRISCTargetInfo.cpp
++
++  LINK_COMPONENTS
++  MC
++  Support
++
++  ADD_TO_COMPONENT
++  YaRISC
++  )
+diff --git a/llvm/lib/Target/YaRISC/TargetInfo/YaRISCTargetInfo.cpp b/llvm/lib/Target/YaRISC/TargetInfo/YaRISCTargetInfo.cpp
+new file mode 100644
+index 000000000000..c39a16f739d3
+--- /dev/null
++++ b/llvm/lib/Target/YaRISC/TargetInfo/YaRISCTargetInfo.cpp
+@@ -0,0 +1,23 @@
++//===-- YaRISCTargetInfo.cpp - YaRISC Target Implementation ---------------===//
++//
++// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
++// See https://llvm.org/LICENSE.txt for license information.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++//
++//===----------------------------------------------------------------------===//
++
++#include "TargetInfo/YaRISCTargetInfo.h"
++#include "llvm/MC/TargetRegistry.h"
++#include "llvm/Support/Compiler.h"
++using namespace llvm;
++
++Target &llvm::getTheYaRISCTarget() {
++  static Target TheYaRISCTarget;
++  return TheYaRISCTarget;
++}
++
++extern "C" LLVM_ABI LLVM_EXTERNAL_VISIBILITY void
++LLVMInitializeYaRISCTargetInfo() {
++  RegisterTarget<Triple::yarisc, /*HasJIT=*/false> X(
++      getTheYaRISCTarget(), "yarisc", "Yet Another RISC", "YaRISC");
++}
+diff --git a/llvm/lib/Target/YaRISC/TargetInfo/YaRISCTargetInfo.h b/llvm/lib/Target/YaRISC/TargetInfo/YaRISCTargetInfo.h
+new file mode 100644
+index 000000000000..2bad882e0e52
+--- /dev/null
++++ b/llvm/lib/Target/YaRISC/TargetInfo/YaRISCTargetInfo.h
+@@ -0,0 +1,20 @@
++//===-- YaRISCTargetInfo.h - YaRISC Target Implementation -------*- C++ -*-===//
++//
++// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
++// See https://llvm.org/LICENSE.txt for license information.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++//
++//===----------------------------------------------------------------------===//
++
++#ifndef LLVM_LIB_TARGET_YARISC_TARGETINFO_YARISCTARGETINFO_H
++#define LLVM_LIB_TARGET_YARISC_TARGETINFO_YARISCTARGETINFO_H
++
++namespace llvm {
++
++class Target;
++
++Target &getTheYaRISCTarget();
++
++} // namespace llvm
++
++#endif // LLVM_LIB_TARGET_YARISC_TARGETINFO_YARISCTARGETINFO_H
+diff --git a/llvm/lib/Target/YaRISC/YaRISC.h b/llvm/lib/Target/YaRISC/YaRISC.h
+new file mode 100644
+index 000000000000..1bfab5848dc6
+--- /dev/null
++++ b/llvm/lib/Target/YaRISC/YaRISC.h
+@@ -0,0 +1,35 @@
++//===-- YaRISC.h - Interface for YaRISC representation ----------*- C++ -*-===//
++//
++// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
++// See https://llvm.org/LICENSE.txt for license information.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++//
++//===----------------------------------------------------------------------===//
++//
++// This file contains the entry points for global functions defined in the LLVM
++// YaRISC back-end.
++//
++//===----------------------------------------------------------------------===//
++
++#ifndef LLVM_LIB_TARGET_YARISC_YARISC_H
++#define LLVM_LIB_TARGET_YARISC_YARISC_H
++
++#include "MCTargetDesc/YaRISCMCTargetDesc.h"
++#include "llvm/Support/ErrorHandling.h"
++#include "llvm/Target/TargetMachine.h"
++
++namespace llvm {
++class AsmPrinter;
++class FunctionPass;
++class MCInst;
++class MachineInstr;
++class PassRegistry;
++class YaRISCTargetMachine;
++
++FunctionPass *createYaRISCISelDag(YaRISCTargetMachine &TM);
++
++void initializeYaRISCAsmPrinterPass(PassRegistry &);
++void initializeYaRISCDAGToDAGISelLegacyPass(PassRegistry &);
++} // namespace llvm
++
++#endif // LLVM_LIB_TARGET_YARISC_YARISC_H
+diff --git a/llvm/lib/Target/YaRISC/YaRISC.td b/llvm/lib/Target/YaRISC/YaRISC.td
+new file mode 100644
+index 000000000000..6c62011633ee
+--- /dev/null
++++ b/llvm/lib/Target/YaRISC/YaRISC.td
+@@ -0,0 +1,79 @@
++//===-- YaRISC.td - Describe the YaRISC Target Machine -----*- tablegen -*-===//
++//
++// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
++// See https://llvm.org/LICENSE.txt for license information.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++//
++//===----------------------------------------------------------------------===//
++//
++//
++//===----------------------------------------------------------------------===//
++
++//===----------------------------------------------------------------------===//
++// Target-independent interfaces which we are implementing
++//===----------------------------------------------------------------------===//
++
++include "llvm/Target/Target.td"
++include "llvm/TableGen/SearchableTable.td"
++
++//===----------------------------------------------------------------------===//
++// YaRISC Subtarget features.
++//===----------------------------------------------------------------------===//
++
++def FeatureSoftFloat : SubtargetFeature<"soft-float", "UseSoftFloat", "true",
++                                   "Use software emulation for floating point">;
++
++def FeatureV1 : SubtargetFeature<"v1", "IsV1", "true",
++                                 "Enable YaRISC-V1 instructions">;
++
++//===----------------------------------------------------------------------===//
++// Register File, Calling Conv, Instruction Descriptions
++//===----------------------------------------------------------------------===//
++
++include "YaRISCRegisterInfo.td"
++include "YaRISCCallingConv.td"
++include "YaRISCInstrInfo.td"
++
++defm : RemapAllTargetPseudoPointerOperands<yarisc_ptr_rc>;
++
++def YaRISCInstrInfo : InstrInfo;
++
++def YaRISCAsmParser : AsmParser {
++  let ShouldEmitMatchRegisterAltName = true;
++  let AllowDuplicateRegisterNames = true;
++}
++
++def YaRISCAsmParserVariant : AsmParserVariant {
++  let RegisterPrefix = "%";
++}
++
++//===----------------------------------------------------------------------===//
++// YaRISC processors supported
++//===----------------------------------------------------------------------===//
++
++class Proc<string Name, list<SubtargetFeature> Features,
++           list<SubtargetFeature> TuneFeatures = []>
++ : Processor<Name, NoItineraries, Features, TuneFeatures>;
++
++def : Proc<"generic", [FeatureSoftFloat]>;
++def : Proc<"minimal", [FeatureSoftFloat]>;
++def : Proc<"v1",      [FeatureSoftFloat, FeatureV1]>;
++
++//===----------------------------------------------------------------------===//
++// Declare the target which we are implementing
++//===----------------------------------------------------------------------===//
++
++def YaRISCAsmWriter : AsmWriter {
++  string AsmWriterClassName  = "InstPrinter";
++  int PassSubtarget = 1;
++  int Variant = 0;
++}
++
++def YaRISC : Target {
++  // Pull in Instruction Info:
++  let InstructionSet = YaRISCInstrInfo;
++  let AssemblyParsers  = [YaRISCAsmParser];
++  let AssemblyParserVariants = [YaRISCAsmParserVariant];
++  let AssemblyWriters = [YaRISCAsmWriter];
++  let AllowRegisterRenaming = 1;
++}
+diff --git a/llvm/lib/Target/YaRISC/YaRISCAsmPrinter.cpp b/llvm/lib/Target/YaRISC/YaRISCAsmPrinter.cpp
+new file mode 100644
+index 000000000000..64e98d5efdd5
+--- /dev/null
++++ b/llvm/lib/Target/YaRISC/YaRISCAsmPrinter.cpp
+@@ -0,0 +1,116 @@
++//===-- YaRISCAsmPrinter.cpp - YaRISC LLVM assembly writer ----------------===//
++//
++// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
++// See https://llvm.org/LICENSE.txt for license information.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++//
++//===----------------------------------------------------------------------===//
++//
++// This file contains a printer that converts from the internal representation
++// of machine-dependent LLVM code to assembly language.
++//
++//===----------------------------------------------------------------------===//
++
++#include "MCTargetDesc/YaRISCInstPrinter.h"
++#include "MCTargetDesc/YaRISCMCAsmInfo.h"
++#include "MCTargetDesc/YaRISCMCTargetDesc.h"
++#include "MCTargetDesc/YaRISCTargetStreamer.h"
++#include "TargetInfo/YaRISCTargetInfo.h"
++#include "YaRISC.h"
++#include "YaRISCInstrInfo.h"
++#include "YaRISCTargetMachine.h"
++#include "llvm/BinaryFormat/ELF.h"
++#include "llvm/CodeGen/AsmPrinter.h"
++#include "llvm/CodeGen/MachineInstr.h"
++#include "llvm/CodeGen/MachineModuleInfoImpls.h"
++#include "llvm/CodeGen/MachineRegisterInfo.h"
++#include "llvm/CodeGen/TargetLoweringObjectFileImpl.h"
++#include "llvm/IR/Mangler.h"
++#include "llvm/MC/MCAsmInfo.h"
++#include "llvm/MC/MCContext.h"
++#include "llvm/MC/MCInst.h"
++#include "llvm/MC/MCStreamer.h"
++#include "llvm/MC/MCSymbol.h"
++#include "llvm/MC/TargetRegistry.h"
++#include "llvm/Support/Compiler.h"
++#include "llvm/Support/raw_ostream.h"
++
++using namespace llvm;
++
++#define DEBUG_TYPE "yarisc-asm-printer"
++
++namespace {
++class YaRISCAsmPrinter : public AsmPrinter {
++public:
++  static char ID;
++
++  explicit YaRISCAsmPrinter(TargetMachine &TM,
++                            std::unique_ptr<MCStreamer> Streamer)
++      : AsmPrinter(TM, std::move(Streamer), ID) {}
++
++  StringRef getPassName() const override { return "YaRISC Assembly Printer"; }
++
++  void emitInstruction(const MachineInstr *MI) override;
++
++  void lowerInstruction(const MachineInstr *MI, MCInst &OutMI) const;
++  bool lowerOperand(const MachineOperand &MO, MCOperand &MCOp) const;
++};
++} // namespace
++
++void YaRISCAsmPrinter::emitInstruction(const MachineInstr *MI) {
++  if (MI->isPseudo())
++    return;
++
++  MCInst OutInst;
++  lowerInstruction(MI, OutInst);
++  EmitToStreamer(*OutStreamer, OutInst);
++}
++
++void YaRISCAsmPrinter::lowerInstruction(const MachineInstr *MI,
++                                        MCInst &OutMI) const {
++  OutMI.setOpcode(MI->getOpcode());
++
++  for (const MachineOperand &MO : MI->operands()) {
++    MCOperand MCOp;
++    if (lowerOperand(MO, MCOp))
++      OutMI.addOperand(MCOp);
++  }
++}
++
++bool YaRISCAsmPrinter::lowerOperand(const MachineOperand &MO,
++                                    MCOperand &MCOp) const {
++  switch (MO.getType()) {
++  default:
++    report_fatal_error("lowerOperand: unknown operand type");
++  case MachineOperand::MO_Register:
++    if (MO.isImplicit())
++      return false;
++    MCOp = MCOperand::createReg(MO.getReg());
++    break;
++  case MachineOperand::MO_Immediate:
++    MCOp = MCOperand::createImm(MO.getImm());
++    break;
++  case MachineOperand::MO_GlobalAddress:
++    MCOp = MCOperand::createExpr(MCSpecifierExpr::create(
++        MCSymbolRefExpr::create(getSymbol(MO.getGlobal()), OutContext),
++        ELF::R_YARISC_16, OutContext));
++    break;
++  case MachineOperand::MO_MachineBasicBlock:
++    MCOp = MCOperand::createExpr(MCSpecifierExpr::create(
++        MCSymbolRefExpr::create(MO.getMBB()->getSymbol(), OutContext),
++        ELF::R_YARISC_16, OutContext));
++    break;
++  }
++  return true;
++}
++
++char YaRISCAsmPrinter::ID = 0;
++
++INITIALIZE_PASS(YaRISCAsmPrinter, "yarisc-asm-printer",
++                "YaRISC Assembly Printer", false, false)
++
++// Force static initialization.
++extern "C" LLVM_ABI LLVM_EXTERNAL_VISIBILITY void
++LLVMInitializeYaRISCAsmPrinter() {
++  RegisterAsmPrinter<YaRISCAsmPrinter> X(getTheYaRISCTarget());
++}
+diff --git a/llvm/lib/Target/YaRISC/YaRISCCallingConv.td b/llvm/lib/Target/YaRISC/YaRISCCallingConv.td
+new file mode 100644
+index 000000000000..3477ff3ab1cd
+--- /dev/null
++++ b/llvm/lib/Target/YaRISC/YaRISCCallingConv.td
+@@ -0,0 +1,27 @@
++//===-- YaRISCCallingConv.td - Calling Conventions YaRISC --*- tablegen -*-===//
++//
++// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
++// See https://llvm.org/LICENSE.txt for license information.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++//
++//===----------------------------------------------------------------------===//
++//
++// This describes the calling conventions for the YaRISC architecture.
++//
++//===----------------------------------------------------------------------===//
++
++def CC_YaRISC : CallingConv<[
++  // TODO: YaRISC
++  CCIfType<[i16], CCAssignToReg<[R0, R1]>>,
++  CCIfType<[i32], CCAssignToReg<[R0, R1]>>,
++  // Alternatively, they are assigned to the stack in 2-byte aligned units.
++  CCAssignToStack<2, 2>
++]>;
++
++def RetCC_YaRISC : CallingConv<[
++  // TODO: YaRISC
++  CCIfType<[i16], CCAssignToReg<[R0, R1]>>,
++  CCIfType<[i32], CCAssignToReg<[R0, R1]>>
++]>;
++
++def CSR : CalleeSavedRegs<(add R3, R4, R5)>;
+diff --git a/llvm/lib/Target/YaRISC/YaRISCFrameLowering.cpp b/llvm/lib/Target/YaRISC/YaRISCFrameLowering.cpp
+new file mode 100644
+index 000000000000..57a646dd99c0
+--- /dev/null
++++ b/llvm/lib/Target/YaRISC/YaRISCFrameLowering.cpp
+@@ -0,0 +1,123 @@
++//===-- YaRISCFrameLowering.cpp - YaRISC Frame Information ----------------===//
++//
++// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
++// See https://llvm.org/LICENSE.txt for license information.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++//
++//===----------------------------------------------------------------------===//
++//
++// This file contains the YaRISC implementation of TargetFrameLowering class.
++//
++//===----------------------------------------------------------------------===//
++
++#include "YaRISCFrameLowering.h"
++#include "YaRISCInstrInfo.h"
++#include "YaRISCMachineFunctionInfo.h"
++#include "YaRISCSubtarget.h"
++#include "llvm/CodeGen/CFIInstBuilder.h"
++#include "llvm/CodeGen/MachineFrameInfo.h"
++#include "llvm/CodeGen/MachineFunction.h"
++#include "llvm/CodeGen/MachineInstrBuilder.h"
++#include "llvm/CodeGen/MachineModuleInfo.h"
++#include "llvm/CodeGen/MachineRegisterInfo.h"
++#include "llvm/CodeGen/RegisterScavenging.h"
++#include "llvm/Support/CommandLine.h"
++#include "llvm/Support/MathExtras.h"
++#include "llvm/Target/TargetOptions.h"
++
++using namespace llvm;
++
++YaRISCFrameLowering::YaRISCFrameLowering(const YaRISCSubtarget &ST)
++    : TargetFrameLowering(TargetFrameLowering::StackGrowsDown, Align(2), 0) {}
++
++static void adjustSP(MachineBasicBlock &MBB, MachineBasicBlock::iterator MBBI,
++                     const DebugLoc &DL, const TargetInstrInfo &TII,
++                     int64_t Adjustment) {
++  if (Adjustment != 0) {
++    bool IsSmallImm = isInt<4>(Adjustment);
++    unsigned Opcode = IsSmallImm ? YaRISC::ADDri4 : YaRISC::ADDri16;
++
++    BuildMI(MBB, MBBI, DL, TII.get(Opcode), YaRISC::SP)
++        .addReg(YaRISC::SP)
++        .addImm(Adjustment);
++  }
++}
++
++void YaRISCFrameLowering::emitPrologue(MachineFunction &MF,
++                                       MachineBasicBlock &MBB) const {
++  MachineBasicBlock::iterator MBBI = MBB.begin();
++  DebugLoc DL = (MBBI != MBB.end()) ? MBBI->getDebugLoc() : DebugLoc();
++  const TargetInstrInfo &TII = *MF.getSubtarget().getInstrInfo();
++  uint64_t StackSize = MF.getFrameInfo().getStackSize();
++
++  adjustSP(MBB, MBBI, DL, TII, -static_cast<int64_t>(StackSize));
++
++  if (hasFP(MF)) {
++    // Set new frame pointer.
++    BuildMI(MBB, MBBI, DL, TII.get(YaRISC::MOVr), YaRISC::R5)
++        .addReg(YaRISC::SP);
++  }
++}
++
++void YaRISCFrameLowering::emitEpilogue(MachineFunction &MF,
++                                       MachineBasicBlock &MBB) const {
++  MachineBasicBlock::iterator MBBI = MBB.getFirstTerminator();
++  DebugLoc DL = (MBBI != MBB.end()) ? MBBI->getDebugLoc() : DebugLoc();
++  const TargetInstrInfo &TII = *MF.getSubtarget().getInstrInfo();
++  uint64_t StackSize = MF.getFrameInfo().getStackSize();
++
++  adjustSP(MBB, MBBI, DL, TII, static_cast<int64_t>(StackSize));
++}
++
++void YaRISCFrameLowering::determineCalleeSaves(MachineFunction &MF,
++                                               BitVector &SavedRegs,
++                                               RegScavenger *RS) const {
++  TargetFrameLowering::determineCalleeSaves(MF, SavedRegs, RS);
++
++  const TargetRegisterClass &RC = YaRISC::GPRRegClass;
++  const TargetRegisterInfo &TRI = *MF.getSubtarget().getRegisterInfo();
++  YaRISCMachineFunctionInfo &MFI = *MF.getInfo<YaRISCMachineFunctionInfo>();
++
++  // For now always reserve an emergency spill slot that we might need to
++  // calculate the return address in the expansion of the pseudo call
++  // instruction.
++  unsigned Size = TRI.getSpillSize(RC);
++  // TODO: YaRISC adapt calling convention to always make room for a spill slot.
++  int FI = MF.getFrameInfo().CreateFixedObject(Size, -Size, false);
++  MFI.setEmergencySpillFrameIndex(FI);
++  if (RS)
++    RS->addScavengingFrameIndex(FI);
++}
++
++MachineBasicBlock::iterator YaRISCFrameLowering::eliminateCallFramePseudoInstr(
++    MachineFunction &MF, MachineBasicBlock &MBB,
++    MachineBasicBlock::iterator I) const {
++  const TargetInstrInfo &TII = *MF.getSubtarget().getInstrInfo();
++  DebugLoc DL = I->getDebugLoc();
++  int64_t Amount = I->getOperand(0).getImm();
++
++  if (Amount != 0 && !hasReservedCallFrame(MF)) {
++    assert(isInt<16>(Amount) && "Offset too large");
++    assert((I->getOpcode() == TII.getCallFrameSetupOpcode() ||
++            I->getOpcode() == TII.getCallFrameDestroyOpcode()) &&
++           "Unknown frame pseudo instruction");
++
++    if (I->getOpcode() == TII.getCallFrameSetupOpcode())
++      Amount = -Amount;
++
++    bool IsSmallImm = isInt<4>(Amount);
++    unsigned Opcode = IsSmallImm ? YaRISC::ADDri4 : YaRISC::ADDri16;
++
++    BuildMI(MBB, I, DL, TII.get(Opcode), YaRISC::SP)
++        .addReg(YaRISC::SP)
++        .addImm(Amount);
++  }
++  return MBB.erase(I);
++}
++
++bool YaRISCFrameLowering::hasFPImpl(const MachineFunction &MF) const {
++  return MF.getTarget().Options.DisableFramePointerElim(MF) ||
++         MF.getFrameInfo().hasVarSizedObjects() ||
++         MF.getFrameInfo().isFrameAddressTaken() ||
++         MF.getSubtarget().getRegisterInfo()->hasStackRealignment(MF);
++}
+diff --git a/llvm/lib/Target/YaRISC/YaRISCFrameLowering.h b/llvm/lib/Target/YaRISC/YaRISCFrameLowering.h
+new file mode 100644
+index 000000000000..5296ab83576b
+--- /dev/null
++++ b/llvm/lib/Target/YaRISC/YaRISCFrameLowering.h
+@@ -0,0 +1,45 @@
++//===-- YaRISCFrameLowering.h - Frame lowering for YaRISC -------*- C++ -*-===//
++//
++// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
++// See https://llvm.org/LICENSE.txt for license information.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++//
++//===----------------------------------------------------------------------===//
++//
++//
++//
++//===----------------------------------------------------------------------===//
++
++#ifndef LLVM_LIB_TARGET_YARISC_YARISCFRAMELOWERING_H
++#define LLVM_LIB_TARGET_YARISC_YARISCFRAMELOWERING_H
++
++#include "YaRISC.h"
++#include "llvm/CodeGen/TargetFrameLowering.h"
++#include "llvm/Support/TypeSize.h"
++
++namespace llvm {
++
++class YaRISCSubtarget;
++class YaRISCFrameLowering : public TargetFrameLowering {
++public:
++  explicit YaRISCFrameLowering(const YaRISCSubtarget &ST);
++
++  /// emitProlog/emitEpilog - These methods insert prolog and epilog code into
++  /// the function.
++  void emitPrologue(MachineFunction &MF, MachineBasicBlock &MBB) const override;
++  void emitEpilogue(MachineFunction &MF, MachineBasicBlock &MBB) const override;
++
++  void determineCalleeSaves(MachineFunction &MF, BitVector &SavedRegs,
++                            RegScavenger *RS = nullptr) const override;
++
++  MachineBasicBlock::iterator
++  eliminateCallFramePseudoInstr(MachineFunction &MF, MachineBasicBlock &MBB,
++                                MachineBasicBlock::iterator I) const override;
++
++protected:
++  bool hasFPImpl(const MachineFunction &MF) const override;
++};
++
++} // namespace llvm
++
++#endif // LLVM_LIB_TARGET_YARISC_YARISCFRAMELOWERING_H
+diff --git a/llvm/lib/Target/YaRISC/YaRISCISelDAGToDAG.cpp b/llvm/lib/Target/YaRISC/YaRISCISelDAGToDAG.cpp
+new file mode 100644
+index 000000000000..1308746d1125
+--- /dev/null
++++ b/llvm/lib/Target/YaRISC/YaRISCISelDAGToDAG.cpp
+@@ -0,0 +1,70 @@
++//===-- YaRISCISelDAGToDAG.cpp - A dag to dag inst selector for YaRISC ----===//
++//
++// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
++// See https://llvm.org/LICENSE.txt for license information.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++//
++//===----------------------------------------------------------------------===//
++//
++// This file defines an instruction selector for the YaRISC target.
++//
++//===----------------------------------------------------------------------===//
++
++#include "YaRISCSelectionDAGInfo.h"
++#include "YaRISCTargetMachine.h"
++#include "llvm/CodeGen/MachineRegisterInfo.h"
++#include "llvm/CodeGen/SelectionDAGISel.h"
++#include "llvm/Support/ErrorHandling.h"
++
++using namespace llvm;
++
++#define DEBUG_TYPE "yarisc-isel"
++#define PASS_NAME "YaRISC DAG->DAG Pattern Instruction Selection"
++
++//===----------------------------------------------------------------------===//
++// Instruction Selector Implementation
++//===----------------------------------------------------------------------===//
++
++//===--------------------------------------------------------------------===//
++/// YaRISCDAGToDAGISel - YaRISC specific code to select machine instructions for
++/// SelectionDAG operations.
++///
++namespace {
++class YaRISCDAGToDAGISel final : public SelectionDAGISel {
++public:
++  explicit YaRISCDAGToDAGISel(YaRISCTargetMachine &TM) : SelectionDAGISel(TM) {}
++
++  void Select(SDNode *N) override;
++
++  // Include the pieces autogenerated from the target description.
++#include "YaRISCGenDAGISel.inc"
++};
++
++class YaRISCDAGToDAGISelLegacy final : public SelectionDAGISelLegacy {
++public:
++  static char ID;
++
++  explicit YaRISCDAGToDAGISelLegacy(YaRISCTargetMachine &TM)
++      : SelectionDAGISelLegacy(ID, std::make_unique<YaRISCDAGToDAGISel>(TM)) {}
++};
++} // namespace
++
++char YaRISCDAGToDAGISelLegacy::ID = 0;
++
++INITIALIZE_PASS(YaRISCDAGToDAGISelLegacy, DEBUG_TYPE, PASS_NAME, false, false)
++
++void YaRISCDAGToDAGISel::Select(SDNode *N) {
++  if (N->isMachineOpcode()) {
++    N->setNodeId(-1);
++    return; // Already selected.
++  }
++
++  SelectCode(N);
++}
++
++/// createYaRISCISelDag - This pass converts a legalized DAG into a
++/// YaRISC-specific DAG, ready for instruction scheduling.
++///
++FunctionPass *llvm::createYaRISCISelDag(YaRISCTargetMachine &TM) {
++  return new YaRISCDAGToDAGISelLegacy(TM);
++}
+diff --git a/llvm/lib/Target/YaRISC/YaRISCISelLowering.cpp b/llvm/lib/Target/YaRISC/YaRISCISelLowering.cpp
+new file mode 100644
+index 000000000000..a93d1bd1efa1
+--- /dev/null
++++ b/llvm/lib/Target/YaRISC/YaRISCISelLowering.cpp
+@@ -0,0 +1,340 @@
++//===-- YaRISCISelLowering.cpp - YaRISC DAG Lowering Implementation -------===//
++//
++// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
++// See https://llvm.org/LICENSE.txt for license information.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++//
++//===----------------------------------------------------------------------===//
++//
++// This file implements the interfaces that YaRISC uses to lower LLVM code into
++// a selection DAG.
++//
++//===----------------------------------------------------------------------===//
++
++#include "YaRISCISelLowering.h"
++#include "MCTargetDesc/YaRISCMCTargetDesc.h"
++#include "YaRISCRegisterInfo.h"
++#include "YaRISCSelectionDAGInfo.h"
++#include "YaRISCTargetMachine.h"
++#include "llvm/ADT/StringExtras.h"
++#include "llvm/ADT/StringSwitch.h"
++#include "llvm/BinaryFormat/ELF.h"
++#include "llvm/CodeGen/CallingConvLower.h"
++#include "llvm/CodeGen/MachineFrameInfo.h"
++#include "llvm/CodeGen/MachineFunction.h"
++#include "llvm/CodeGen/MachineInstrBuilder.h"
++#include "llvm/CodeGen/MachineRegisterInfo.h"
++#include "llvm/CodeGen/SelectionDAG.h"
++#include "llvm/CodeGen/SelectionDAGNodes.h"
++#include "llvm/CodeGen/TargetLowering.h"
++#include "llvm/CodeGen/TargetLoweringObjectFileImpl.h"
++#include "llvm/IR/DerivedTypes.h"
++#include "llvm/IR/DiagnosticInfo.h"
++#include "llvm/IR/Function.h"
++#include "llvm/IR/IRBuilder.h"
++#include "llvm/IR/Module.h"
++#include "llvm/Support/ErrorHandling.h"
++#include "llvm/Support/KnownBits.h"
++
++using namespace llvm;
++
++//===----------------------------------------------------------------------===//
++// Calling Convention Implementation
++//===----------------------------------------------------------------------===//
++
++#include "YaRISCGenCallingConv.inc"
++
++// TODO: YaRISC anything special to do for isByVal()?
++
++SDValue YaRISCTargetLowering::LowerFormalArguments(
++    SDValue Chain, CallingConv::ID CallConv, bool IsVarArg,
++    const SmallVectorImpl<ISD::InputArg> &Ins, const SDLoc &DL,
++    SelectionDAG &DAG, SmallVectorImpl<SDValue> &InVals) const {
++  MachineFunction &MF = DAG.getMachineFunction();
++  MachineFrameInfo &MFI = MF.getFrameInfo();
++
++  SmallVector<CCValAssign, 16> ArgLocs;
++  CCState CCInfo(CallConv, IsVarArg, MF, ArgLocs, *DAG.getContext());
++
++  CCInfo.AnalyzeFormalArguments(Ins, CC_YaRISC);
++
++  for (const CCValAssign &VA : ArgLocs) {
++    if (VA.isRegLoc()) {
++      Register VReg = MF.addLiveIn(VA.getLocReg(), &YaRISC::GPRRegClass);
++      SDValue Val = DAG.getCopyFromReg(Chain, DL, VReg, VA.getLocVT());
++
++      switch (VA.getLocInfo()) {
++      default:
++        llvm_unreachable("Unknown loc info!");
++      case CCValAssign::Full:
++        break;
++      case CCValAssign::SExt:
++        Val = DAG.getSExtOrTrunc(Val, DL, VA.getValVT());
++        break;
++      case CCValAssign::ZExt:
++        Val = DAG.getZExtOrTrunc(Val, DL, VA.getValVT());
++        break;
++      case CCValAssign::AExt:
++        Val = DAG.getAnyExtOrTrunc(Val, DL, VA.getValVT());
++        break;
++      case CCValAssign::Trunc:
++        Val = DAG.getNode(ISD::TRUNCATE, DL, VA.getValVT(), Val);
++        break;
++      }
++
++      InVals.push_back(Val);
++    } else {
++      assert(VA.isMemLoc() && "Unknown arg location");
++
++      unsigned Size = VA.getValVT().getStoreSize();
++      int FI = MFI.CreateFixedObject(Size, VA.getLocMemOffset(), true);
++      SDValue FIN = DAG.getFrameIndex(FI, MVT::i16);
++
++      SDValue Load = DAG.getLoad(VA.getValVT(), DL, Chain, FIN,
++                                 MachinePointerInfo::getFixedStack(MF, FI),
++                                 Align(2)); // 2-byte stack alignment for 16-bit
++
++      InVals.push_back(Load);
++    }
++  }
++
++  return Chain;
++}
++
++SDValue
++YaRISCTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
++                                SmallVectorImpl<SDValue> &InVals) const {
++  SelectionDAG &DAG = CLI.DAG;
++  SDLoc &DL = CLI.DL;
++  const SmallVectorImpl<ISD::OutputArg> &Outs = CLI.Outs;
++  const SmallVectorImpl<SDValue> &OutVals = CLI.OutVals;
++  const SmallVectorImpl<ISD::InputArg> &Ins = CLI.Ins;
++  SDValue Chain = CLI.Chain;
++  SDValue Callee = CLI.Callee;
++  CallingConv::ID CallConv = CLI.CallConv;
++  bool IsVarArg = CLI.IsVarArg;
++
++  // No tail call optimization so far.
++  CLI.IsTailCall = false;
++
++  MachineFunction &MF = DAG.getMachineFunction();
++
++  SmallVector<CCValAssign, 16> ArgLocs;
++  CCState CCInfo(CallConv, IsVarArg, MF, ArgLocs, *DAG.getContext());
++  CCInfo.AnalyzeCallOperands(Outs, CC_YaRISC);
++
++  unsigned BytesToReserve = CCInfo.getStackSize();
++  Align StackAlign(2); // 2-byte alignment for 16-bit
++
++  Chain = DAG.getCALLSEQ_START(Chain, BytesToReserve, 0, DL);
++
++  SmallVector<std::pair<unsigned, SDValue>, 3> RegsToPass;
++  SmallVector<SDValue, 8> MemOpChains;
++
++  for (unsigned i = 0; i < ArgLocs.size(); ++i) {
++    CCValAssign &VA = ArgLocs[i];
++    SDValue Val = OutVals[i];
++
++    switch (VA.getLocInfo()) {
++    default:
++      llvm_unreachable("Unknown loc info!");
++    case CCValAssign::Full:
++      break;
++    case CCValAssign::SExt:
++      Val = DAG.getSExtOrTrunc(Val, DL, VA.getLocVT());
++      break;
++    case CCValAssign::ZExt:
++      Val = DAG.getZExtOrTrunc(Val, DL, VA.getLocVT());
++      break;
++    case CCValAssign::AExt:
++      Val = DAG.getAnyExtOrTrunc(Val, DL, VA.getLocVT());
++      break;
++    case CCValAssign::Trunc:
++      Val = DAG.getNode(ISD::TRUNCATE, DL, VA.getLocVT(), Val);
++      break;
++    }
++
++    if (VA.isRegLoc()) {
++      RegsToPass.emplace_back(VA.getLocReg(), Val);
++    } else {
++      assert(VA.isMemLoc() && "Unexpected call argument location");
++
++      SDValue SP = DAG.getRegister(YaRISC::SP, MVT::i16);
++      SDValue Off = DAG.getConstant(VA.getLocMemOffset(), DL, MVT::i16);
++      SDValue Ptr = DAG.getNode(ISD::ADD, DL, MVT::i16, SP, Off);
++
++      SDValue Store = DAG.getStore(
++          Chain, DL, Val, Ptr,
++          MachinePointerInfo::getStack(MF, VA.getLocMemOffset()), StackAlign);
++
++      MemOpChains.push_back(Store);
++    }
++  }
++
++  if (!MemOpChains.empty())
++    Chain = DAG.getNode(ISD::TokenFactor, DL, MVT::Other, MemOpChains);
++
++  SDValue Glue;
++  for (auto &RegArg : RegsToPass) {
++    Chain = DAG.getCopyToReg(Chain, DL, RegArg.first, RegArg.second, Glue);
++    Glue = Chain.getValue(1);
++  }
++
++  // For now we don't care about relocation but at some point we might and
++  // therefore the direct and PLT calls are distinguished here. The addresses
++  // are replaced here so that they can be matched with tglobaladdr:$target and
++  // texternalsym:$target when replaced by out call pseudo-instruction.
++  if (auto *S = dyn_cast<GlobalAddressSDNode>(Callee)) {
++    const GlobalValue *GV = S->getGlobal();
++    unsigned OpFlags = getTargetMachine().shouldAssumeDSOLocal(GV)
++                           ? YaRISCII::MO_CALL
++                           : YaRISCII::MO_CALL_PLT;
++    Callee = DAG.getTargetGlobalAddress(
++        GV, DL, getPointerTy(DAG.getDataLayout()), 0, OpFlags);
++  } else if (auto *S = dyn_cast<ExternalSymbolSDNode>(Callee)) {
++    unsigned OpFlags = getTargetMachine().shouldAssumeDSOLocal(nullptr)
++                           ? YaRISCII::MO_CALL
++                           : YaRISCII::MO_CALL_PLT;
++    Callee = DAG.getTargetExternalSymbol(
++        S->getSymbol(), getPointerTy(DAG.getDataLayout()), OpFlags);
++  }
++
++  SmallVector<SDValue, 8> Ops;
++  Ops.push_back(Chain);
++  Ops.push_back(Callee);
++
++  for (auto &Reg : RegsToPass)
++    Ops.push_back(DAG.getRegister(Reg.first, Reg.second.getValueType()));
++
++  const TargetRegisterInfo *TRI = Subtarget->getRegisterInfo();
++  const uint32_t *Mask =
++      TRI->getCallPreservedMask(DAG.getMachineFunction(), CallConv);
++  assert(Mask && "Missing call preserved mask for calling convention");
++  Ops.push_back(DAG.getRegisterMask(Mask));
++
++  if (Glue.getNode()) {
++    Ops.push_back(Glue);
++  }
++
++  SDVTList NodeTys = DAG.getVTList(MVT::Other, MVT::Glue);
++  Chain = DAG.getNode(YaRISCISD::CALL, DL, NodeTys, Ops);
++  Glue = Chain.getValue(1);
++
++  Chain = DAG.getCALLSEQ_END(Chain, BytesToReserve, 0, Glue, DL);
++
++  SmallVector<CCValAssign, 16> RetLocs;
++  CCState RetCCInfo(CallConv, IsVarArg, MF, RetLocs, *DAG.getContext());
++  RetCCInfo.AnalyzeCallResult(Ins, RetCC_YaRISC);
++
++  for (const CCValAssign &VA : RetLocs) {
++    assert(VA.isRegLoc() && "YaRISC returns only in registers");
++    SDValue Val = DAG.getCopyFromReg(Chain, DL, VA.getLocReg(), VA.getLocVT());
++
++    switch (VA.getLocInfo()) {
++    default:
++      llvm_unreachable("Unknown loc info!");
++    case CCValAssign::Full:
++      break;
++    case CCValAssign::SExt:
++      Val = DAG.getSExtOrTrunc(Val, DL, VA.getValVT());
++      break;
++    case CCValAssign::ZExt:
++      Val = DAG.getZExtOrTrunc(Val, DL, VA.getValVT());
++      break;
++    case CCValAssign::AExt:
++      Val = DAG.getAnyExtOrTrunc(Val, DL, VA.getValVT());
++      break;
++    case CCValAssign::Trunc:
++      Val = DAG.getNode(ISD::TRUNCATE, DL, VA.getValVT(), Val);
++      break;
++    }
++
++    InVals.push_back(Val);
++  }
++
++  return Chain;
++}
++
++SDValue
++YaRISCTargetLowering::LowerReturn(SDValue Chain, CallingConv::ID CallConv,
++                                  bool IsVarArg,
++                                  const SmallVectorImpl<ISD::OutputArg> &Outs,
++                                  const SmallVectorImpl<SDValue> &OutVals,
++                                  const SDLoc &DL, SelectionDAG &DAG) const {
++  MachineFunction &MF = DAG.getMachineFunction();
++
++  SmallVector<CCValAssign, 16> RVLocs;
++  CCState CCInfo(CallConv, IsVarArg, MF, RVLocs, *DAG.getContext());
++  CCInfo.AnalyzeReturn(Outs, RetCC_YaRISC);
++
++  SDValue Glue;
++  SmallVector<SDValue, 4> RetOps(1, Chain);
++
++  for (unsigned i = 0; i < RVLocs.size(); ++i) {
++    CCValAssign &VA = RVLocs[i];
++    SDValue Val = OutVals[i];
++
++    switch (VA.getLocInfo()) {
++    default:
++      llvm_unreachable("Unknown loc info!");
++    case CCValAssign::Full:
++      break;
++    case CCValAssign::SExt:
++      Val = DAG.getSExtOrTrunc(Val, DL, VA.getLocVT());
++      break;
++    case CCValAssign::ZExt:
++      Val = DAG.getZExtOrTrunc(Val, DL, VA.getLocVT());
++      break;
++    case CCValAssign::AExt:
++      Val = DAG.getAnyExtOrTrunc(Val, DL, VA.getLocVT());
++      break;
++    }
++
++    Register Reg = VA.getLocReg();
++    Chain = DAG.getCopyToReg(Chain, DL, Reg, Val, Glue);
++    Glue = Chain.getValue(1);
++    RetOps.push_back(DAG.getRegister(Reg, VA.getLocVT()));
++  }
++
++  if (MF.getFunction().hasStructRetAttr()) {
++    // TODO: YaRISC anything special to do here?
++  }
++
++  // Update chain and glue.
++  RetOps[0] = Chain;
++  if (Glue.getNode())
++    RetOps.push_back(Glue);
++
++  return DAG.getNode(YaRISCISD::RET_GLUE, DL, MVT::Other, RetOps);
++}
++
++//===----------------------------------------------------------------------===//
++// TargetLowering Implementation
++//===----------------------------------------------------------------------===//
++
++YaRISCTargetLowering::YaRISCTargetLowering(const TargetMachine &TM,
++                                           const YaRISCSubtarget &STI)
++    : TargetLowering(TM, STI), Subtarget(&STI) {
++  setBooleanContents(ZeroOrOneBooleanContent);
++  setBooleanVectorContents(ZeroOrNegativeOneBooleanContent);
++
++  // Atomics are currently not supported.
++  setMaxAtomicSizeInBitsSupported(0);
++
++  setStackPointerRegisterToSaveRestore(YaRISC::SP);
++  setMinFunctionAlignment(Align(2));
++
++  addRegisterClass(MVT::i16, &YaRISC::GPRRegClass);
++  computeRegisterProperties(STI.getRegisterInfo());
++
++  setOperationAction(ISD::ADD, MVT::i8, Promote);
++  setOperationAction(ISD::ADD, MVT::i32, Expand);
++  setOperationAction(ISD::ADD, MVT::i64, Expand);
++  setOperationAction(ISD::SUB, MVT::i8, Promote);
++  setOperationAction(ISD::SUB, MVT::i32, Expand);
++  setOperationAction(ISD::SUB, MVT::i64, Expand);
++}
++
++bool YaRISCTargetLowering::useSoftFloat() const {
++  return Subtarget->useSoftFloat();
++}
+diff --git a/llvm/lib/Target/YaRISC/YaRISCISelLowering.h b/llvm/lib/Target/YaRISC/YaRISCISelLowering.h
+new file mode 100644
+index 000000000000..598fc40d1813
+--- /dev/null
++++ b/llvm/lib/Target/YaRISC/YaRISCISelLowering.h
+@@ -0,0 +1,48 @@
++//===-- YaRISCISelLowering.h - YaRISC DAG Lowering Interface ----*- C++ -*-===//
++//
++// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
++// See https://llvm.org/LICENSE.txt for license information.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++//
++//===----------------------------------------------------------------------===//
++//
++// This file defines the interfaces that YaRISC uses to lower LLVM code into a
++// selection DAG.
++//
++//===----------------------------------------------------------------------===//
++
++#ifndef LLVM_LIB_TARGET_YARISC_YARISCISELLOWERING_H
++#define LLVM_LIB_TARGET_YARISC_YARISCISELLOWERING_H
++
++#include "YaRISC.h"
++#include "llvm/CodeGen/TargetLowering.h"
++
++namespace llvm {
++class YaRISCSubtarget;
++
++class YaRISCTargetLowering : public TargetLowering {
++  const YaRISCSubtarget *Subtarget;
++
++public:
++  YaRISCTargetLowering(const TargetMachine &TM, const YaRISCSubtarget &STI);
++
++  bool useSoftFloat() const override;
++
++  SDValue LowerFormalArguments(SDValue Chain, CallingConv::ID CallConv,
++                               bool IsVarArg,
++                               const SmallVectorImpl<ISD::InputArg> &Ins,
++                               const SDLoc &DL, SelectionDAG &DAG,
++                               SmallVectorImpl<SDValue> &InVals) const override;
++
++  SDValue LowerCall(TargetLowering::CallLoweringInfo &CLI,
++                    SmallVectorImpl<SDValue> &InVals) const override;
++
++  SDValue LowerReturn(SDValue Chain, CallingConv::ID CallConv, bool IsVarArg,
++                      const SmallVectorImpl<ISD::OutputArg> &Outs,
++                      const SmallVectorImpl<SDValue> &OutVals, const SDLoc &DL,
++                      SelectionDAG &DAG) const override;
++};
++
++} // namespace llvm
++
++#endif // LLVM_LIB_TARGET_YARISC_YARISCISELLOWERING_H
+diff --git a/llvm/lib/Target/YaRISC/YaRISCInstrFormats.td b/llvm/lib/Target/YaRISC/YaRISCInstrFormats.td
+new file mode 100644
+index 000000000000..136d76d4e131
+--- /dev/null
++++ b/llvm/lib/Target/YaRISC/YaRISCInstrFormats.td
+@@ -0,0 +1,154 @@
++//===-- YaRISCInstrFormats.td - YaRISC Instruction Formats -*- tablegen -*-===//
++//
++// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
++// See https://llvm.org/LICENSE.txt for license information.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++//
++//===----------------------------------------------------------------------===//
++
++class InstYaRISC<int sz, dag outs, dag ins, string asmstr, list<dag> pattern,
++                 InstrItinClass itin = NoItinerary>
++    : Instruction {
++  field bits<32> Inst;
++
++  let Namespace = "YaRISC";
++  let Size = sz;
++
++  bits<6> opcode;
++  let Inst{5-0} = opcode;
++
++  dag OutOperandList = outs;
++  dag InOperandList = ins;
++  let AsmString = asmstr;
++  let Pattern = pattern;
++
++  let Itinerary = itin;
++}
++
++class InstOp<int sz, dag outs, dag ins, string asmstr, list<dag> pattern,
++             InstrItinClass itin = NoItinerary>
++  : InstYaRISC<sz, outs, ins, asmstr, pattern, itin> {
++  bits<3> op0;
++  bits<6> ops;
++  bits<1> sel;
++  let Inst{8-6} = op0;
++  let Inst{14-9} = ops;
++  let Inst{15} = sel;
++}
++
++class InstOpImm<int sz, dag outs, dag ins, string asmstr, list<dag> pattern,
++                InstrItinClass itin = NoItinerary>
++  : InstOp<sz, outs, ins, asmstr, pattern, itin> {
++  bits<4> st;
++  bits<1> as;
++  bits<1> loc;
++  let ops{3-0} = st;
++  let ops{4} = as;
++  let ops{5} = loc;
++  let sel = 1;
++}
++
++class InstOpImm4<dag outs, dag ins, string asmstr, list<dag> pattern,
++                 InstrItinClass itin = NoItinerary>
++  : InstOpImm<2, outs, ins, asmstr, pattern, itin> {
++  bits<4> imm;
++  let st = imm;
++  let loc = 0;
++}
++
++class InstOpImm16<dag outs, dag ins, string asmstr, list<dag> pattern,
++                  InstrItinClass itin = NoItinerary>
++  : InstOpImm<4, outs, ins, asmstr, pattern, itin> {
++  bits<16> imm;
++  let Inst{31-16} = imm;
++  let loc = 1;
++}
++
++class InstOpReg<dag outs, dag ins, string asmstr, list<dag> pattern,
++                InstrItinClass itin = NoItinerary>
++  : InstOp<2, outs, ins, asmstr, pattern, itin> {
++  bits<3> op1;
++  bits<3> op2;
++  let ops{2-0} = op1;
++  let ops{5-3} = op2;
++  let sel = 0;
++}
++
++class InstOp0<bits<6> op, dag outs, dag ins, string asmstr, list<dag> pattern,
++              InstrItinClass itin = NoItinerary>
++  : InstOp<2, outs, ins, asmstr, pattern, itin> {
++  let opcode = op;
++  let op0 = 0;
++  let ops = 0;
++  let sel = 0;
++}
++
++class InstOp1Reg<bits<6> op, dag outs, dag ins, string asmstr,
++                 list<dag> pattern, InstrItinClass itin = NoItinerary>
++  : InstOpReg<outs, ins, asmstr, pattern, itin> {
++  let opcode = op;
++  let op1 = 0;
++  let op2 = 0;
++}
++
++class InstOp2Reg<bits<6> op, dag outs, dag ins, string asmstr,
++                 list<dag> pattern, InstrItinClass itin = NoItinerary>
++  : InstOpReg<outs, ins, asmstr, pattern, itin> {
++  let opcode = op;
++  let op2 = 0;
++}
++
++class InstOp2RegImm4<bits<6> op, dag outs, dag ins, string asmstr,
++                     list<dag> pattern, InstrItinClass itin = NoItinerary>
++  : InstOpImm4<outs, ins, asmstr, pattern, itin> {
++  let opcode = op;
++  let as = 1;
++}
++
++class InstOp2RegImm16<bits<6> op, dag outs, dag ins, string asmstr,
++                      list<dag> pattern, InstrItinClass itin = NoItinerary>
++  : InstOpImm16<outs, ins, asmstr, pattern, itin> {
++  let opcode = op;
++  let st = 0;
++  let as = 1;
++}
++
++class InstOp3Reg<bits<6> op, dag outs, dag ins, string asmstr,
++                 list<dag> pattern, InstrItinClass itin = NoItinerary>
++  : InstOpReg<outs, ins, asmstr, pattern, itin> {
++  let opcode = op;
++}
++
++class InstOp3RegImm4<bits<6> op, dag outs, dag ins, string asmstr,
++                     list<dag> pattern, InstrItinClass itin = NoItinerary>
++  : InstOpImm4<outs, ins, asmstr, pattern, itin> {
++  let opcode = op;
++  let as = 1;
++}
++
++class InstOp3RegImm16<bits<6> op, dag outs, dag ins, string asmstr,
++                      list<dag> pattern, InstrItinClass itin = NoItinerary>
++  : InstOpImm16<outs, ins, asmstr, pattern, itin> {
++  bits<3> op1;
++  let opcode = op;
++  let st{3} = 0;
++  let st{2-0} = op1;
++  let as = 1;
++}
++
++class InstOp3Imm4Reg<bits<6> op, dag outs, dag ins, string asmstr,
++                     list<dag> pattern, InstrItinClass itin = NoItinerary>
++  : InstOpImm4<outs, ins, asmstr, pattern, itin> {
++  let opcode = op;
++  let as = 0;
++}
++
++class InstOp3Imm16Reg<bits<6> op, dag outs, dag ins, string asmstr,
++                      list<dag> pattern, InstrItinClass itin = NoItinerary>
++  : InstOpImm16<outs, ins, asmstr, pattern, itin> {
++  bits<3> op2;
++  let opcode = op;
++  let st{3} = 0;
++  let st{2-0} = op2;
++  let as = 0;
++}
+diff --git a/llvm/lib/Target/YaRISC/YaRISCInstrInfo.cpp b/llvm/lib/Target/YaRISC/YaRISCInstrInfo.cpp
+new file mode 100644
+index 000000000000..b32ad0523ac2
+--- /dev/null
++++ b/llvm/lib/Target/YaRISC/YaRISCInstrInfo.cpp
+@@ -0,0 +1,186 @@
++//===-- YaRISCInstrInfo.cpp - YaRISC Instruction Information --------------===//
++//
++// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
++// See https://llvm.org/LICENSE.txt for license information.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++//
++//===----------------------------------------------------------------------===//
++//
++// This file contains the YaRISC implementation of the TargetInstrInfo class.
++//
++//===----------------------------------------------------------------------===//
++
++#include "YaRISCInstrInfo.h"
++#include "YaRISC.h"
++#include "YaRISCMachineFunctionInfo.h"
++#include "YaRISCSubtarget.h"
++#include "llvm/ADT/SmallVector.h"
++#include "llvm/CodeGen/MachineFrameInfo.h"
++#include "llvm/CodeGen/MachineInstrBuilder.h"
++#include "llvm/CodeGen/MachineMemOperand.h"
++#include "llvm/CodeGen/MachineRegisterInfo.h"
++#include "llvm/CodeGen/RegisterScavenging.h"
++#include "llvm/Support/ErrorHandling.h"
++
++using namespace llvm;
++
++#define GET_INSTRINFO_CTOR_DTOR
++#include "YaRISCGenInstrInfo.inc"
++
++// Pin the vtable to this file.
++void YaRISCInstrInfo::anchor() {}
++
++YaRISCInstrInfo::YaRISCInstrInfo(const YaRISCSubtarget &ST)
++    : YaRISCGenInstrInfo(ST, RI, YaRISC::ADJCALLSTACKDOWN,
++                         YaRISC::ADJCALLSTACKUP),
++      RI(ST), Subtarget(ST) {}
++
++unsigned YaRISCInstrInfo::getInstSizeInBytes(const MachineInstr &MI) const {
++  switch (MI.getOpcode()) {
++  default:
++    return MI.getDesc().getSize();
++  case TargetOpcode::INLINEASM:
++  case TargetOpcode::INLINEASM_BR: {
++    const MachineFunction *MF = MI.getParent()->getParent();
++    const char *AsmStr = MI.getOperand(0).getSymbolName();
++    return getInlineAsmLength(AsmStr, *MF->getTarget().getMCAsmInfo());
++  }
++  }
++}
++
++void YaRISCInstrInfo::copyPhysReg(MachineBasicBlock &MBB,
++                                  MachineBasicBlock::iterator MBBI,
++                                  const DebugLoc &DL, Register DestReg,
++                                  Register SrcReg, bool KillSrc,
++                                  bool RenamableDest, bool RenamableSrc) const {
++  BuildMI(MBB, MBBI, DL, get(YaRISC::MOVr), DestReg)
++      .addReg(SrcReg, getKillRegState(KillSrc));
++}
++
++void YaRISCInstrInfo::storeRegToStackSlot(
++    MachineBasicBlock &MBB, MachineBasicBlock::iterator MBBI, Register SrcReg,
++    bool KillSrc, int FrameIndex, const TargetRegisterClass *RC, Register VReg,
++    MachineInstr::MIFlag Flags) const {
++  MachineFunction &MF = *MBB.getParent();
++  MachineFrameInfo &MFI = MF.getFrameInfo();
++  DebugLoc DL = MBBI != MBB.end() ? MBBI->getDebugLoc() : DebugLoc();
++
++  MachineMemOperand *MMO = MF.getMachineMemOperand(
++      MachinePointerInfo::getFixedStack(MF, FrameIndex),
++      MachineMemOperand::MOStore, MFI.getObjectSize(FrameIndex),
++      MFI.getObjectAlign(FrameIndex));
++
++  BuildMI(MBB, MBBI, DL, get(YaRISC::STXri16))
++      .addReg(SrcReg, getKillRegState(KillSrc))
++      .addFrameIndex(FrameIndex)
++      .addImm(0)
++      .addMemOperand(MMO);
++}
++
++void YaRISCInstrInfo::loadRegFromStackSlot(MachineBasicBlock &MBB,
++                                           MachineBasicBlock::iterator MBBI,
++                                           Register DestReg, int FrameIndex,
++                                           const TargetRegisterClass *RC,
++                                           Register VReg,
++                                           MachineInstr::MIFlag Flags) const {
++  MachineFunction &MF = *MBB.getParent();
++  MachineFrameInfo &MFI = MF.getFrameInfo();
++  DebugLoc DL = MBBI != MBB.end() ? MBBI->getDebugLoc() : DebugLoc();
++
++  MachineMemOperand *MMO = MF.getMachineMemOperand(
++      MachinePointerInfo::getFixedStack(MF, FrameIndex),
++      MachineMemOperand::MOLoad, MFI.getObjectSize(FrameIndex),
++      MFI.getObjectAlign(FrameIndex));
++
++  BuildMI(MBB, MBBI, DL, get(YaRISC::LDXri16), DestReg)
++      .addFrameIndex(FrameIndex)
++      .addImm(0)
++      .addMemOperand(MMO);
++}
++
++bool YaRISCInstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
++  MachineBasicBlock &MBB = *MI.getParent();
++  DebugLoc DL = MI.getDebugLoc();
++
++  switch (MI.getOpcode()) {
++  case YaRISC::CALL: {
++    MachineOperand &TargetOp = MI.getOperand(0);
++    MachineFunction &MF = *MBB.getParent();
++    const TargetInstrInfo &TII = *MF.getSubtarget().getInstrInfo();
++    const TargetRegisterClass &RC = YaRISC::GPRRegClass;
++    const YaRISCMachineFunctionInfo MFI =
++        *MF.getInfo<YaRISCMachineFunctionInfo>();
++
++    MachineBasicBlock::iterator MBBI = MI.getIterator();
++    MachineBasicBlock::iterator NextMBBI = std::next(MBBI);
++
++    RegScavenger RS;
++    RS.enterBasicBlockEnd(MBB);
++    RS.backward(MBBI);
++
++    Register TmpReg = RS.FindUnusedReg(&RC);
++    if (!TmpReg.isValid()) {
++      // TODO: YaRISC I don't quite get this interface. Is there no other way?
++      RS.enterBasicBlockEnd(MBB);
++      RS.addScavengingFrameIndex(MFI.getEmergencySpillFrameIndex());
++      RS.backward(NextMBBI);
++      TmpReg = RS.scavengeRegisterBackwards(RC, MBBI, false, 0);
++    }
++
++    // There should always be an emergency spill slot.
++    assert(TmpReg.isValid());
++
++    // Adjust the offset to spill restore instructions.
++    int64_t RetOffset = 6;
++    for (auto II = MBBI; II != NextMBBI; ++II)
++      RetOffset += TII.getInstSizeInBytes(*II);
++
++    BuildMI(MBB, MI, DL, get(YaRISC::ADDri4), YaRISC::SP)
++        .addReg(YaRISC::SP)
++        .addImm(-2);
++
++    // ADDri4 only supports input and output register to be the same.
++    BuildMI(MBB, MI, DL, get(YaRISC::ADDri16), TmpReg)
++        .addReg(YaRISC::IP)
++        .addImm(RetOffset);
++
++    BuildMI(MBB, MI, DL, get(YaRISC::STXspi4)).addReg(TmpReg).addImm(0);
++
++    // Position independent code is not supported.
++    BuildMI(MBB, NextMBBI, DL, get(YaRISC::MOVi16), YaRISC::IP).add(TargetOp);
++  } break;
++  case YaRISC::RET: {
++    BuildMI(MBB, MI, DL, get(YaRISC::ADDri4), YaRISC::SP)
++        .addReg(YaRISC::SP)
++        .addImm(2);
++
++    BuildMI(MBB, MI, DL, get(YaRISC::LDXspi4), YaRISC::IP).addImm(-2);
++  } break;
++  default:
++    return false;
++  }
++
++  MI.eraseFromParent();
++  return true;
++}
++
++bool YaRISCInstrInfo::reverseBranchCondition(
++    SmallVectorImpl<MachineOperand> &Cond) const {
++  // TODO: YaRISC
++  return YaRISCGenInstrInfo::reverseBranchCondition(Cond);
++}
++
++std::pair<unsigned, unsigned>
++YaRISCInstrInfo::decomposeMachineOperandsTargetFlags(unsigned TF) const {
++  const unsigned Mask = YaRISCII::MO_DIRECT_FLAG_MASK;
++  return std::make_pair(TF & Mask, TF & ~Mask);
++}
++
++ArrayRef<std::pair<unsigned, const char *>>
++YaRISCInstrInfo::getSerializableDirectMachineOperandTargetFlags() const {
++  static const std::pair<unsigned, const char *> Flags[] = {
++      {YaRISCII::MO_CALL, "yarisc-call"},
++      {YaRISCII::MO_CALL_PLT, "yarisc-call-plt"},
++  };
++  return Flags;
++}
+diff --git a/llvm/lib/Target/YaRISC/YaRISCInstrInfo.h b/llvm/lib/Target/YaRISC/YaRISCInstrInfo.h
+new file mode 100644
+index 000000000000..29a0f8b881ae
+--- /dev/null
++++ b/llvm/lib/Target/YaRISC/YaRISCInstrInfo.h
+@@ -0,0 +1,82 @@
++//===-- YaRISCInstrInfo.h - YaRISC Instruction Information ------*- C++ -*-===//
++//
++// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
++// See https://llvm.org/LICENSE.txt for license information.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++//
++//===----------------------------------------------------------------------===//
++//
++// This file contains the YaRISC implementation of the TargetInstrInfo class.
++//
++//===----------------------------------------------------------------------===//
++
++#ifndef LLVM_LIB_TARGET_YARISC_YARISCINSTRINFO_H
++#define LLVM_LIB_TARGET_YARISC_YARISCINSTRINFO_H
++
++#include "YaRISCRegisterInfo.h"
++#include "llvm/CodeGen/TargetInstrInfo.h"
++
++#define GET_INSTRINFO_HEADER
++#include "YaRISCGenInstrInfo.inc"
++
++namespace llvm {
++
++namespace YaRISCII {
++enum {
++  MO_None,
++  MO_CALL,
++  MO_CALL_PLT,
++
++  // Used to differentiate between target-specific "direct" flags and "bitmask"
++  // flags. A machine operand can only have one "direct" flag, but can have
++  // multiple "bitmask" flags.
++  MO_DIRECT_FLAG_MASK = 0x03,
++};
++} // namespace YaRISCII
++
++class YaRISCSubtarget;
++
++class YaRISCInstrInfo : public YaRISCGenInstrInfo {
++  const YaRISCRegisterInfo RI;
++  const YaRISCSubtarget &Subtarget;
++  virtual void anchor();
++
++public:
++  explicit YaRISCInstrInfo(const YaRISCSubtarget &ST);
++
++  const YaRISCRegisterInfo &getRegisterInfo() const { return RI; }
++
++  unsigned getInstSizeInBytes(const MachineInstr &MI) const override;
++
++  void copyPhysReg(MachineBasicBlock &MBB, MachineBasicBlock::iterator MBBI,
++                   const DebugLoc &DL, Register DestReg, Register SrcReg,
++                   bool KillSrc, bool RenamableDest = false,
++                   bool RenamableSrc = false) const override;
++
++  void storeRegToStackSlot(
++      MachineBasicBlock &MBB, MachineBasicBlock::iterator MBBI, Register SrcReg,
++      bool KillSrc, int FrameIndex, const TargetRegisterClass *RC,
++      Register VReg,
++      MachineInstr::MIFlag Flags = MachineInstr::NoFlags) const override;
++
++  void loadRegFromStackSlot(
++      MachineBasicBlock &MBB, MachineBasicBlock::iterator MBBI,
++      Register DestReg, int FrameIndex, const TargetRegisterClass *RC,
++      Register VReg,
++      MachineInstr::MIFlag Flags = MachineInstr::NoFlags) const override;
++
++  bool expandPostRAPseudo(MachineInstr &MI) const override;
++
++  bool
++  reverseBranchCondition(SmallVectorImpl<MachineOperand> &Cond) const override;
++
++  std::pair<unsigned, unsigned>
++  decomposeMachineOperandsTargetFlags(unsigned TF) const override;
++
++  ArrayRef<std::pair<unsigned, const char *>>
++  getSerializableDirectMachineOperandTargetFlags() const override;
++};
++
++} // namespace llvm
++
++#endif // LLVM_LIB_TARGET_YARISC_YARISCINSTRINFO_H
+diff --git a/llvm/lib/Target/YaRISC/YaRISCInstrInfo.td b/llvm/lib/Target/YaRISC/YaRISCInstrInfo.td
+new file mode 100644
+index 000000000000..e91df57ea4fe
+--- /dev/null
++++ b/llvm/lib/Target/YaRISC/YaRISCInstrInfo.td
+@@ -0,0 +1,273 @@
++//===-- YaRISCInstrInfo.td - Target Description for YaRISC Target ---------===//
++//
++// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
++// See https://llvm.org/LICENSE.txt for license information.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++//
++//===----------------------------------------------------------------------===//
++//
++// This file describes the YaRISC instructions in TableGen format.
++//
++//===----------------------------------------------------------------------===//
++
++//===----------------------------------------------------------------------===//
++// YaRISC specific DAG Nodes
++//===----------------------------------------------------------------------===//
++
++def callseq_start : SDNode<"ISD::CALLSEQ_START",
++                           SDCallSeqStart<[SDTCisVT<0, i16>, SDTCisVT<1, i16>]>,
++                           [SDNPHasChain, SDNPOutGlue]>;
++def callseq_end : SDNode<"ISD::CALLSEQ_END",
++                         SDCallSeqEnd<[SDTCisVT<0, i16>, SDTCisVT<1, i16>]>,
++                         [SDNPHasChain, SDNPOptInGlue, SDNPOutGlue]>;
++def call : SDNode<"YaRISCISD::CALL",
++                  SDTypeProfile<0, -1, [SDTCisVT<0, iPTR>]>,
++                  [SDNPHasChain, SDNPOutGlue, SDNPOptInGlue, SDNPVariadic]>;
++def ret : SDNode<"YaRISCISD::RET_GLUE", SDTNone,
++                 [SDNPHasChain, SDNPOptInGlue, SDNPVariadic]>;
++
++//===----------------------------------------------------------------------===//
++// Instruction Formats
++//===----------------------------------------------------------------------===//
++
++include "YaRISCInstrFormats.td"
++
++//===----------------------------------------------------------------------===//
++// Feature Predicates
++//===----------------------------------------------------------------------===//
++
++// HasV1 - This predicate is true when the target processor supports V1
++// instructions. TODO: YaRISC
++def HasV1 : Predicate<"Subtarget->isV1()">,
++            AssemblerPredicate<(all_of FeatureV1)>;
++
++//===----------------------------------------------------------------------===//
++// Instruction Pattern Stuff
++//===----------------------------------------------------------------------===//
++
++def simm4 : ImmLeaf<i16, [{ return isInt<4>(Imm); }]>;
++
++def calltarget : Operand<iPTR>;
++
++def yarisc_ptr_rc : RegisterClass<"YaRISC", [i16], 16, (add GPR)>;
++
++def ptr_op : RegisterOperand<yarisc_ptr_rc> {
++  let DecoderMethod = "DecodeGPRRegisterClass";
++}
++
++//===----------------------------------------------------------------------===//
++// Flag Conditions
++//===----------------------------------------------------------------------===//
++
++class CC_YaRISC<bits<4> Val, string Name> {
++  bits<4> Value = Val;
++  string Mnemonic = Name;
++}
++
++def CC_EQ : CC_YaRISC<0b0001, "EQ">;
++def CC_LT : CC_YaRISC<0b0010, "LT">;
++def CC_LE : CC_YaRISC<0b0011, "LE">;
++def CC_LO : CC_YaRISC<0b0100, "LO">;
++def CC_LS : CC_YaRISC<0b0101, "LS">;
++def CC_NE : CC_YaRISC<0b1001, "NE">;
++def CC_GE : CC_YaRISC<0b1010, "GE">;
++def CC_GT : CC_YaRISC<0b1011, "GT">;
++def CC_HS : CC_YaRISC<0b1100, "HS">;
++def CC_HI : CC_YaRISC<0b1101, "HI">;
++
++//===----------------------------------------------------------------------===//
++// Instruction Class Templates
++//===----------------------------------------------------------------------===//
++
++multiclass Move<bits<6> op, string opstr> {
++  def r : InstOp2Reg<op, (outs GPR:$op0), (ins GPR:$op1),
++                     !strconcat(opstr, " $op0, $op1"), []>;
++
++  def i16 : InstOp2RegImm16<op, (outs GPR:$op0), (ins i16imm:$imm),
++                            !strconcat(opstr, " $op0, $imm"),
++                            [(set GPR:$op0, imm:$imm)]>;
++
++  def i4 : InstOp2RegImm4<op, (outs GPR:$op0), (ins i16imm:$imm),
++                          !strconcat(opstr, " $op0, $imm"),
++                          [(set GPR:$op0, simm4:$imm)]>;
++}
++
++multiclass Load<bits<6> op, string opstr> {
++  def r : InstOp2Reg<op, (outs GPR:$op0), (ins GPR:$op1),
++                     !strconcat(opstr, " $op0, [$op1]"),
++                     [(set GPR:$op0, (load GPR:$op1))]>;
++
++  def i16 : InstOp2RegImm16<op, (outs GPR:$op0), (ins i16imm:$imm),
++                            !strconcat(opstr, " $op0, [$imm]"),
++                            [(set GPR:$op0, (load imm:$imm))]>;
++
++  def i4 : InstOp2RegImm4<op, (outs GPR:$op0), (ins i16imm:$imm),
++                          !strconcat(opstr, " $op0, [$imm]"),
++                          [(set GPR:$op0, (load simm4:$imm))]>;
++}
++
++multiclass IndexedLoad<bits<6> op, string opstr> {
++  def rr : InstOp3Reg<op, (outs GPR:$op0), (ins GPR:$op1, GPR:$op2),
++                      !strconcat(opstr, " $op0, [$op1, $op2]"),
++                      [(set GPR:$op0, (load (add GPR:$op1, GPR:$op2)))]>;
++
++  def ri16 : InstOp3RegImm16<op, (outs GPR:$op0), (ins GPR:$op1, i16imm:$imm),
++                             !strconcat(opstr, " $op0, [$op1, $imm]"),
++                             [(set GPR:$op0, (load (add GPR:$op1, imm:$imm)))]>;
++
++  let Uses = [SP] in
++  def spi4 : InstOp3RegImm4<op, (outs GPR:$op0), (ins i16imm:$imm),
++                            !strconcat(opstr, " $op0, [sp, $imm]"),
++                            [(set GPR:$op0, (load (add SP, simm4:$imm)))]>;
++
++  let Uses = [R5] in
++  def fpi4 : InstOp3Imm4Reg<op, (outs GPR:$op0), (ins i16imm:$imm),
++                            !strconcat(opstr, " $op0, [r5, $imm]"),
++                            [(set GPR:$op0, (load (add R5, simm4:$imm)))]>;
++}
++
++multiclass Store<bits<6> op, string opstr> {
++  def r : InstOp2Reg<op, (outs), (ins GPR:$op0, GPR:$op1),
++                     !strconcat(opstr, " $op0, [$op1]"),
++                     [(store GPR:$op0, GPR:$op1)]>;
++
++  def i16 : InstOp2RegImm16<op, (outs), (ins GPR:$op0, i16imm:$imm),
++                            !strconcat(opstr, " $op0, [$imm]"),
++                            [(store GPR:$op0, imm:$imm)]>;
++
++  def i4 : InstOp2RegImm4<op, (outs), (ins GPR:$op0, i16imm:$imm),
++                          !strconcat(opstr, " $op0, [$imm]"),
++                          [(store GPR:$op0, simm4:$imm)]>;
++}
++
++multiclass IndexedStore<bits<6> op, string opstr> {
++  def rr : InstOp3Reg<op, (outs GPR:$op0), (ins GPR:$op1, GPR:$op2),
++                      !strconcat(opstr, " $op0, [$op1, $op2]"),
++                      [(store GPR:$op0, (add GPR:$op1, GPR:$op2))]>;
++
++  def ri16 : InstOp3RegImm16<op, (outs), (ins GPR:$op0, GPR:$op1, i16imm:$imm),
++                             !strconcat(opstr, " $op0, [$op1, $imm]"),
++                             [(store GPR:$op0, (add GPR:$op1, imm:$imm))]>;
++
++  let Uses = [SP] in
++  def spi4 : InstOp3RegImm4<op, (outs), (ins GPR:$op0, i16imm:$imm),
++                            !strconcat(opstr, " $op0, [sp, $imm]"),
++                            [(store GPR:$op0, (add SP, simm4:$imm))]>;
++
++  let Uses = [R5] in
++  def fpi4 : InstOp3Imm4Reg<op, (outs), (ins GPR:$op0, i16imm:$imm),
++                            !strconcat(opstr, " $op0, [r5, $imm]"),
++                            [(store GPR:$op0, (add R5, simm4:$imm))]>;
++}
++
++multiclass UnaryArith<bits<6> op, string opstr, SDNode opnode> {
++  def r : InstOp2Reg<op, (outs GPR:$op0), (ins GPR:$op1),
++                     !strconcat(opstr, " $op0, $op1"),
++                     [(set GPR:$op0, (opnode GPR:$op1))]>;
++
++  def i16 : InstOp2RegImm16<op, (outs GPR:$op0), (ins i16imm:$imm),
++                            !strconcat(opstr, " $op0, $imm"),
++                            [(set GPR:$op0, (opnode imm:$imm))]>;
++
++  def i4 : InstOp2RegImm4<op, (outs GPR:$op0), (ins i16imm:$imm),
++                          !strconcat(opstr, " $op0, $imm"),
++                          [(set GPR:$op0, (opnode simm4:$imm))]>;
++}
++
++multiclass BinaryArith<bits<6> op, string opstr, SDNode opnode> {
++  def rr : InstOp3Reg<op, (outs GPR:$op0), (ins GPR:$op1, GPR:$op2),
++                      !strconcat(opstr, " $op0, $op1, $op2"),
++                      [(set GPR:$op0, (opnode GPR:$op1, GPR:$op2))]>;
++
++  def ri16 : InstOp3RegImm16<op, (outs GPR:$op0), (ins GPR:$op1, i16imm:$imm),
++                             !strconcat(opstr, " $op0, $op1, $imm"),
++                             [(set GPR:$op0, (opnode GPR:$op1, imm:$imm))]>;
++
++  let Constraints = "$op0 = $op1" in
++  def ri4 : InstOp3RegImm4<op, (outs GPR:$op0), (ins GPR:$op1, i16imm:$imm),
++                           !strconcat(opstr, " $op0, $op1, $imm"),
++                           [(set GPR:$op0, (opnode GPR:$op1, simm4:$imm))]>;
++}
++
++multiclass AsymmetricArith<bits<6> op, string opstr, SDNode opnode>
++  : BinaryArith<op, opstr, opnode> {
++  def i16r : InstOp3Imm16Reg<op, (outs GPR:$op0), (ins i16imm:$imm, GPR:$op2),
++                             !strconcat(opstr, " $op0, $imm, $op2"), []>;
++
++  let Constraints = "$op0 = $op2" in
++  def i4r : InstOp3Imm4Reg<op, (outs GPR:$op0), (ins i16imm:$imm, GPR:$op2),
++                           !strconcat(opstr, " $op0, $imm, $op2"), []>;
++}
++
++//===----------------------------------------------------------------------===//
++// Instructions
++//===----------------------------------------------------------------------===//
++
++defm MOV : Move<0b000001, "MOV">;
++defm LDR : Load<0b000010, "LDR">;
++defm LDX : IndexedLoad<0b000011, "LDX">;
++defm STR : Store<0b000100, "STR">;
++defm STX : IndexedStore<0b000101, "STX">;
++defm ADD : BinaryArith<0b010000, "ADD", add>;
++defm SUB : AsymmetricArith<0b010100, "SUB", sub>;
++// TODO: YaRISC not yet assigned
++defm XOR : BinaryArith<0b111100, "XOR", xor>;
++
++// TODO: YaRISC need to model flags
++// let Defs = [NZCV] in {
++//   defm ADDS : BinaryArith<0b010001, "ADDS", add>;
++//   defm SUBS : AsymmetricArith<0b010101, "SUBS", sub>;
++// }
++
++def NOP : InstOp0<0b111111, (outs), (ins), "NOP", []>;
++
++def SUBreg : PatFrag<(ops node:$rs, node:$imm),
++                     (add (sub 0, node:$rs), node:$imm)>;
++
++def : Pat<(SUBreg GPR:$rs, imm:$imm),
++          (SUBi16r i16imm:$imm, GPR:$rs)>;
++def : Pat<(SUBreg GPR:$rs, simm4:$imm),
++          (SUBi4r i16imm:$imm, GPR:$rs)>;
++
++def to_tframeindex : SDNodeXForm<frameindex, [{
++  return CurDAG->getTargetFrameIndex(N->getIndex(), N->getValueType(0));
++}]>;
++
++def : Pat<(frameindex:$fi),
++          (ADDri16 (iPTR (to_tframeindex $fi)), 0)>;
++def : Pat<(add frameindex:$fi, imm:$offset),
++          (ADDri16 (iPTR (to_tframeindex $fi)), i16imm:$offset)>;
++
++//===----------------------------------------------------------------------===//
++// Pseudo-instructions
++//===----------------------------------------------------------------------===//
++
++class Pseudo<dag outs, dag ins, string asmstr, list<dag> pattern>
++   : InstYaRISC<0, outs, ins, asmstr, pattern> {
++  let isCodeGenOnly = 1;
++  let isPseudo = 1;
++}
++
++// These pseudo instructions are turned into ADD/SUB instructions, so they might
++// set the status flags.
++let Defs = [SP, NZCV], Uses = [SP] in {
++  def ADJCALLSTACKDOWN : Pseudo<(outs), (ins i16imm:$amt, i16imm:$align),
++                                "#ADJCALLSTACKDOWN $amt $align",
++                                [(callseq_start timm:$amt, timm:$align)] >;
++  def ADJCALLSTACKUP : Pseudo<(outs), (ins i16imm:$amt, i16imm:$align),
++                              "#ADJCALLSTACKUP $amt $align",
++                              [(callseq_end timm:$amt, timm:$align)] >;
++}
++
++// CALL and RET in the minimal configuration are turned into seqences that use
++// the ADD instruction, so they might set the status flags.
++let Defs = [SP, IP, NZCV], Uses = [SP] in {
++  let isCall = true, isTerminator = true in
++  def CALL : Pseudo<(outs), (ins calltarget:$target), "#CALL $target", []>;
++  let isTerminator = true, isReturn = true, isBarrier = true in
++  def RET : Pseudo<(outs), (ins), "#RET", []>;
++}
++
++def : Pat<(call tglobaladdr:$target), (CALL tglobaladdr:$target)>;
++def : Pat<(call texternalsym:$target), (CALL texternalsym:$target)>;
++def : Pat<(ret), (RET)>;
+diff --git a/llvm/lib/Target/YaRISC/YaRISCMachineFunctionInfo.h b/llvm/lib/Target/YaRISC/YaRISCMachineFunctionInfo.h
+new file mode 100644
+index 000000000000..a09e1ed95960
+--- /dev/null
++++ b/llvm/lib/Target/YaRISC/YaRISCMachineFunctionInfo.h
+@@ -0,0 +1,50 @@
++//=- YaRISCMachineFunctionInfo.h ------- YaRISC machine function info -----===//
++//
++// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
++// See https://llvm.org/LICENSE.txt for license information.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++//
++//===----------------------------------------------------------------------===//
++//
++// This file declares YaRISC-specific per-machine-function information.
++//
++//===----------------------------------------------------------------------===//
++
++#ifndef LLVM_LIB_TARGET_YARISC_YARISCMACHINEFUNCTIONINFO_H
++#define LLVM_LIB_TARGET_YARISC_YARISCMACHINEFUNCTIONINFO_H
++
++#include "llvm/CodeGen/MachineFrameInfo.h"
++#include "llvm/CodeGen/MachineFunction.h"
++
++namespace llvm {
++
++/// YaRISCMachineFunctionInfo - This class is derived from
++/// MachineFunctionInfo and contains private YaRISC-specific information for
++/// each MachineFunction.
++class YaRISCMachineFunctionInfo : public MachineFunctionInfo {
++private:
++  /// FrameIndex used for making a register available when calculating the
++  /// return address of a call.
++  int EmergencySpillFrameIndex = -1;
++
++public:
++  YaRISCMachineFunctionInfo(const Function &F, const TargetSubtargetInfo *STI) {
++  }
++
++  MachineFunctionInfo *
++  clone(BumpPtrAllocator &Allocator, MachineFunction &DestMF,
++        const DenseMap<MachineBasicBlock *, MachineBasicBlock *> &Src2DstMBB)
++      const override {
++    return DestMF.cloneInfo<YaRISCMachineFunctionInfo>(*this);
++  }
++
++  int getEmergencySpillFrameIndex() const { return EmergencySpillFrameIndex; }
++
++  void setEmergencySpillFrameIndex(int Index) {
++    EmergencySpillFrameIndex = Index;
++  }
++};
++
++} // namespace llvm
++
++#endif // LLVM_LIB_TARGET_YARISC_YARISCMACHINEFUNCTIONINFO_H
+diff --git a/llvm/lib/Target/YaRISC/YaRISCRegisterInfo.cpp b/llvm/lib/Target/YaRISC/YaRISCRegisterInfo.cpp
+new file mode 100644
+index 000000000000..7d9565fd52a4
+--- /dev/null
++++ b/llvm/lib/Target/YaRISC/YaRISCRegisterInfo.cpp
+@@ -0,0 +1,142 @@
++//===-- YaRISCRegisterInfo.cpp - YaRISC Register Information --------------===//
++//
++// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
++// See https://llvm.org/LICENSE.txt for license information.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++//
++//===----------------------------------------------------------------------===//
++//
++// This file contains the YaRISC implementation of the TargetRegisterInfo class.
++//
++//===----------------------------------------------------------------------===//
++
++#include "YaRISCRegisterInfo.h"
++#include "YaRISC.h"
++#include "YaRISCSubtarget.h"
++#include "llvm/ADT/BitVector.h"
++#include "llvm/CodeGen/MachineFrameInfo.h"
++#include "llvm/CodeGen/MachineFunction.h"
++#include "llvm/CodeGen/MachineInstrBuilder.h"
++#include "llvm/CodeGen/TargetInstrInfo.h"
++#include "llvm/IR/Type.h"
++#include "llvm/Support/CommandLine.h"
++#include "llvm/Support/ErrorHandling.h"
++#include "llvm/Support/MathExtras.h"
++
++using namespace llvm;
++
++#define GET_REGINFO_TARGET_DESC
++#include "YaRISCGenRegisterInfo.inc"
++
++YaRISCRegisterInfo::YaRISCRegisterInfo(const YaRISCSubtarget &STI)
++    // TODO: YaRISC SP as CFA?
++    : YaRISCGenRegisterInfo(YaRISC::NoRegister, 0, 0, YaRISC::IP) {}
++
++const MCPhysReg *
++YaRISCRegisterInfo::getCalleeSavedRegs(const MachineFunction *MF) const {
++  return CSR_SaveList;
++}
++
++const uint32_t *
++YaRISCRegisterInfo::getCallPreservedMask(const MachineFunction &MF,
++                                         CallingConv::ID CC) const {
++  return CSR_RegMask;
++}
++
++BitVector YaRISCRegisterInfo::getReservedRegs(const MachineFunction &MF) const {
++  const TargetFrameLowering *TFI = MF.getSubtarget().getFrameLowering();
++
++  BitVector Reserved(getNumRegs());
++  Reserved.set(YaRISC::SP); // stack pointer
++  Reserved.set(YaRISC::IP); // program counter
++
++  if (TFI->hasFP(MF))
++    Reserved.set(YaRISC::R5); // frame pointer
++
++  assert(checkAllSuperRegsMarked(Reserved));
++  return Reserved;
++}
++
++const TargetRegisterClass *
++YaRISCRegisterInfo::getPointerRegClass(unsigned Kind) const {
++  assert(Kind == 0 && "this should only be used for default cases");
++  return &YaRISC::GPRRegClass;
++}
++
++bool YaRISCRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
++                                             int SPAdj, unsigned FIOperandNum,
++                                             RegScavenger *RS) const {
++  MachineInstr &MI = *II;
++  MachineBasicBlock &MBB = *MI.getParent();
++  MachineFunction &MF = *MBB.getParent();
++  const TargetFrameLowering *TFI = MF.getSubtarget().getFrameLowering();
++  assert(MI.getOpcode() == YaRISC::LDXri16 ||
++         MI.getOpcode() == YaRISC::STXri16 ||
++         MI.getOpcode() == YaRISC::ADDri16);
++
++  int FrameIndex = MI.getOperand(FIOperandNum).getIndex();
++
++  Register FrameReg;
++  StackOffset Offset = TFI->getFrameIndexReference(MF, FrameIndex, FrameReg);
++  int64_t RealOffset =
++      Offset.getFixed() + MI.getOperand(FIOperandNum + 1).getImm();
++
++  bool IsFramePointer = FrameReg == YaRISC::R5;
++  bool IsStackPointer = FrameReg == YaRISC::SP;
++  if (IsStackPointer)
++    RealOffset += SPAdj;
++
++  if (isInt<4>(RealOffset)) {
++    const TargetInstrInfo &TII = *MF.getSubtarget().getInstrInfo();
++    Register Reg = MI.getOperand(0).getReg();
++    DebugLoc DL = MI.getDebugLoc();
++
++    // There are special stack pointer and frame pointer relative loads and
++    // stores for small offsets that fit into one word.
++    if ((IsFramePointer || IsStackPointer) &&
++        (MI.getOpcode() == YaRISC::LDXri16 ||
++         MI.getOpcode() == YaRISC::STXri16)) {
++      unsigned Opcode =
++          MI.getOpcode() == YaRISC::LDXri16
++              ? (IsStackPointer ? YaRISC::LDXspi4 : YaRISC::LDXfpi4)
++              : (IsStackPointer ? YaRISC::STXspi4 : YaRISC::STXfpi4);
++
++      BuildMI(MBB, MI, DL, TII.get(Opcode), Reg).addImm(RealOffset);
++
++      MBB.erase(II);
++      return true;
++    }
++
++    if (MI.getOpcode() == YaRISC::ADDri16) {
++      // Pick a smaller instruction when the source and target are the same or
++      // when the offset is zero. It is unknown whether the registers are ever
++      // the same seems very odd (the frame pointer is probably not being reused
++      // as general purpose register), however for now we just leave it in.
++      if (Reg == FrameReg) {
++        if (RealOffset != 0) {
++          BuildMI(MBB, MI, DL, TII.get(YaRISC::ADDri4), Reg)
++              .addReg(FrameReg)
++              .addImm(RealOffset);
++        }
++
++        MBB.erase(II);
++        return true;
++      } else if (RealOffset == 0) {
++        BuildMI(MBB, MI, DL, TII.get(YaRISC::MOVr), Reg).addReg(FrameReg);
++
++        MBB.erase(II);
++        return true;
++      }
++    }
++  }
++
++  MI.getOperand(FIOperandNum).ChangeToRegister(FrameReg, false);
++  MI.getOperand(FIOperandNum + 1).ChangeToImmediate(RealOffset);
++  // II is not removed.
++  return false;
++}
++
++Register YaRISCRegisterInfo::getFrameRegister(const MachineFunction &MF) const {
++  const TargetFrameLowering *TFI = MF.getSubtarget().getFrameLowering();
++  return TFI->hasFP(MF) ? YaRISC::R5 : YaRISC::SP;
++}
+diff --git a/llvm/lib/Target/YaRISC/YaRISCRegisterInfo.h b/llvm/lib/Target/YaRISC/YaRISCRegisterInfo.h
+new file mode 100644
+index 000000000000..6a049d822298
+--- /dev/null
++++ b/llvm/lib/Target/YaRISC/YaRISCRegisterInfo.h
+@@ -0,0 +1,45 @@
++//===-- YaRISCRegisterInfo.h - YaRISC Register Information Impl -*- C++ -*-===//
++//
++// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
++// See https://llvm.org/LICENSE.txt for license information.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++//
++//===----------------------------------------------------------------------===//
++//
++// This file contains the YaRISC implementation of the TargetRegisterInfo class.
++//
++//===----------------------------------------------------------------------===//
++
++#ifndef LLVM_LIB_TARGET_YARISC_YARISCREGISTERINFO_H
++#define LLVM_LIB_TARGET_YARISC_YARISCREGISTERINFO_H
++
++#include "llvm/CodeGen/TargetRegisterInfo.h"
++
++#define GET_REGINFO_HEADER
++#include "YaRISCGenRegisterInfo.inc"
++
++namespace llvm {
++class YaRISCSubtarget;
++
++struct YaRISCRegisterInfo : public YaRISCGenRegisterInfo {
++public:
++  explicit YaRISCRegisterInfo(const YaRISCSubtarget &STI);
++
++  const MCPhysReg *getCalleeSavedRegs(const MachineFunction *MF) const override;
++  const uint32_t *getCallPreservedMask(const MachineFunction &MF,
++                                       CallingConv::ID CC) const override;
++
++  BitVector getReservedRegs(const MachineFunction &MF) const override;
++
++  const TargetRegisterClass *getPointerRegClass(unsigned Kind) const override;
++
++  bool eliminateFrameIndex(MachineBasicBlock::iterator II, int SPAdj,
++                           unsigned FIOperandNum,
++                           RegScavenger *RS = nullptr) const override;
++
++  Register getFrameRegister(const MachineFunction &MF) const override;
++};
++
++} // namespace llvm
++
++#endif // LLVM_LIB_TARGET_YARISC_YARISCREGISTERINFO_H
+diff --git a/llvm/lib/Target/YaRISC/YaRISCRegisterInfo.td b/llvm/lib/Target/YaRISC/YaRISCRegisterInfo.td
+new file mode 100644
+index 000000000000..a1d9b99ec194
+--- /dev/null
++++ b/llvm/lib/Target/YaRISC/YaRISCRegisterInfo.td
+@@ -0,0 +1,44 @@
++//===-- YaRISCRegisterInfo.td - YaRISC Register defs -------*- tablegen -*-===//
++//
++// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
++// See https://llvm.org/LICENSE.txt for license information.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++//
++//===----------------------------------------------------------------------===//
++
++//===----------------------------------------------------------------------===//
++//  Declarations that describe the YaRISC register file
++//===----------------------------------------------------------------------===//
++
++// Registers are identified with 3-bit ID numbers.
++class YaRISCReg<bits<3> enc, string n> : Register<n> {
++  let HWEncoding{2-0} = enc;
++  let Namespace = "YaRISC";
++}
++
++class YaRISCCtrlReg<string n>: Register<n> {
++  let Namespace = "YaRISC";
++}
++
++// General purpose registers
++def R0 : YaRISCReg<0, "r0">, DwarfRegNum<[0]>;
++def R1 : YaRISCReg<1, "r1">, DwarfRegNum<[1]>;
++def R2 : YaRISCReg<2, "r2">, DwarfRegNum<[2]>;
++def R3 : YaRISCReg<3, "r3">, DwarfRegNum<[3]>;
++def R4 : YaRISCReg<4, "r4">, DwarfRegNum<[4]>;
++def R5 : YaRISCReg<5, "r5">, DwarfRegNum<[5]>;
++def SP : YaRISCReg<6, "sp">, DwarfRegNum<[6]>;
++def IP : YaRISCReg<7, "ip">, DwarfRegNum<[7]>;
++
++// Status register (negative/zero/carry/overflow)
++def NZCV : YaRISCCtrlReg<"NZCV">;
++
++// Register class for the general purpose registers.
++def GPR : RegisterClass<"YaRISC", [i16], 16,
++              (add R0, R1, R2, R3, R4, R5, SP, IP)>;
++
++// Register class for the status register.
++def SR : RegisterClass<"YaRISC", [i16], 16, (add NZCV)> {
++  let CopyCost = -1; // Don't allow copying of status registers.
++  let isAllocatable = 0;
++}
+diff --git a/llvm/lib/Target/YaRISC/YaRISCSelectionDAGInfo.cpp b/llvm/lib/Target/YaRISC/YaRISCSelectionDAGInfo.cpp
+new file mode 100644
+index 000000000000..876bd51df82e
+--- /dev/null
++++ b/llvm/lib/Target/YaRISC/YaRISCSelectionDAGInfo.cpp
+@@ -0,0 +1,19 @@
++//===----------------------------------------------------------------------===//
++//
++// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
++// See https://llvm.org/LICENSE.txt for license information.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++//
++//===----------------------------------------------------------------------===//
++
++#include "YaRISCSelectionDAGInfo.h"
++
++#define GET_SDNODE_DESC
++#include "YaRISCGenSDNodeInfo.inc"
++
++using namespace llvm;
++
++YaRISCSelectionDAGInfo::YaRISCSelectionDAGInfo()
++    : SelectionDAGGenTargetInfo(YaRISCGenSDNodeInfo) {}
++
++YaRISCSelectionDAGInfo::~YaRISCSelectionDAGInfo() = default;
+diff --git a/llvm/lib/Target/YaRISC/YaRISCSelectionDAGInfo.h b/llvm/lib/Target/YaRISC/YaRISCSelectionDAGInfo.h
+new file mode 100644
+index 000000000000..16affe0579a4
+--- /dev/null
++++ b/llvm/lib/Target/YaRISC/YaRISCSelectionDAGInfo.h
+@@ -0,0 +1,28 @@
++//===----------------------------------------------------------------------===//
++//
++// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
++// See https://llvm.org/LICENSE.txt for license information.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++//
++//===----------------------------------------------------------------------===//
++
++#ifndef LLVM_LIB_TARGET_YARISC_YARISCSELECTIONDAGINFO_H
++#define LLVM_LIB_TARGET_YARISC_YARISCSELECTIONDAGINFO_H
++
++#include "llvm/CodeGen/SelectionDAGTargetInfo.h"
++
++#define GET_SDNODE_ENUM
++#include "YaRISCGenSDNodeInfo.inc"
++
++namespace llvm {
++
++class YaRISCSelectionDAGInfo : public SelectionDAGGenTargetInfo {
++public:
++  YaRISCSelectionDAGInfo();
++
++  ~YaRISCSelectionDAGInfo() override;
++};
++
++} // namespace llvm
++
++#endif // LLVM_LIB_TARGET_YARISC_YARISCSELECTIONDAGINFO_H
+diff --git a/llvm/lib/Target/YaRISC/YaRISCSubtarget.cpp b/llvm/lib/Target/YaRISC/YaRISCSubtarget.cpp
+new file mode 100644
+index 000000000000..45e328df4558
+--- /dev/null
++++ b/llvm/lib/Target/YaRISC/YaRISCSubtarget.cpp
+@@ -0,0 +1,95 @@
++//===-- YaRISCSubtarget.cpp - YaRISC Subtarget Information ----------------===//
++//
++// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
++// See https://llvm.org/LICENSE.txt for license information.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++//
++//===----------------------------------------------------------------------===//
++//
++// This file implements the YaRISC specific subclass of TargetSubtargetInfo.
++//
++//===----------------------------------------------------------------------===//
++
++#include "YaRISCSubtarget.h"
++#include "YaRISCSelectionDAGInfo.h"
++#include "llvm/ADT/StringRef.h"
++#include "llvm/MC/TargetRegistry.h"
++#include "llvm/Support/MathExtras.h"
++
++using namespace llvm;
++
++#define DEBUG_TYPE "yarisc-subtarget"
++
++#define GET_SUBTARGETINFO_TARGET_DESC
++#define GET_SUBTARGETINFO_CTOR
++#include "YaRISCGenSubtargetInfo.inc"
++
++void YaRISCSubtarget::anchor() {}
++
++YaRISCSubtarget &YaRISCSubtarget::initializeSubtargetDependencies(
++    StringRef CPU, StringRef TuneCPU, StringRef FS) {
++  // Determine default and user specified characteristics
++  std::string CPUName = std::string(CPU);
++  if (CPUName.empty())
++    CPUName = "minimal";
++
++  if (TuneCPU.empty())
++    TuneCPU = CPUName;
++
++  // Parse features string.
++  ParseSubtargetFeatures(CPUName, TuneCPU, FS);
++
++  return *this;
++}
++
++YaRISCSubtarget::YaRISCSubtarget(const StringRef &CPU, const StringRef &TuneCPU,
++                                 const StringRef &FS, const TargetMachine &TM)
++    : YaRISCGenSubtargetInfo(TM.getTargetTriple(), CPU, TuneCPU, FS),
++      ReserveRegister(TM.getMCRegisterInfo()->getNumRegs()),
++      InstrInfo(initializeSubtargetDependencies(CPU, TuneCPU, FS)),
++      TLInfo(TM, *this), FrameLowering(*this) {
++  TSInfo = std::make_unique<YaRISCSelectionDAGInfo>();
++}
++
++YaRISCSubtarget::~YaRISCSubtarget() = default;
++
++const SelectionDAGTargetInfo *YaRISCSubtarget::getSelectionDAGInfo() const {
++  return TSInfo.get();
++}
++
++void YaRISCSubtarget::initLibcallLoweringInfo(LibcallLoweringInfo &Info) const {
++  // Setup Runtime library names.
++  if (!useSoftFloat()) {
++    Info.setLibcallImpl(RTLIB::ADD_F128, RTLIB::impl__Q_add);
++    Info.setLibcallImpl(RTLIB::SUB_F128, RTLIB::impl__Q_sub);
++    Info.setLibcallImpl(RTLIB::MUL_F128, RTLIB::impl__Q_mul);
++    Info.setLibcallImpl(RTLIB::DIV_F128, RTLIB::impl__Q_div);
++    Info.setLibcallImpl(RTLIB::SQRT_F128, RTLIB::impl__Q_sqrt);
++    Info.setLibcallImpl(RTLIB::FPTOSINT_F128_I32, RTLIB::impl__Q_qtoi);
++    Info.setLibcallImpl(RTLIB::FPTOUINT_F128_I32, RTLIB::impl__Q_qtou);
++    Info.setLibcallImpl(RTLIB::SINTTOFP_I32_F128, RTLIB::impl__Q_itoq);
++    Info.setLibcallImpl(RTLIB::UINTTOFP_I32_F128, RTLIB::impl__Q_utoq);
++    Info.setLibcallImpl(RTLIB::FPEXT_F32_F128, RTLIB::impl__Q_stoq);
++    Info.setLibcallImpl(RTLIB::FPEXT_F64_F128, RTLIB::impl__Q_dtoq);
++    Info.setLibcallImpl(RTLIB::FPROUND_F128_F32, RTLIB::impl__Q_qtos);
++    Info.setLibcallImpl(RTLIB::FPROUND_F128_F64, RTLIB::impl__Q_qtod);
++  }
++}
++
++int YaRISCSubtarget::getAdjustedFrameSize(int frameSize) const {
++  // Emit the correct save instruction based on the number of bytes in
++  // the frame. Minimum stack frame size according to V8 ABI is:
++  //   16 words for register window spill
++  //    1 word for address of returned aggregate-value
++  // +  6 words for passing parameters on the stack
++  // ----------
++  //   23 words * 4 bytes per word = 92 bytes
++  frameSize += 92;
++
++  // Round up to next doubleword boundary -- a double-word boundary
++  // is required by the ABI.
++  frameSize = alignTo(frameSize, 8);
++  return frameSize;
++}
++
++bool YaRISCSubtarget::enableMachineScheduler() const { return true; }
+diff --git a/llvm/lib/Target/YaRISC/YaRISCSubtarget.h b/llvm/lib/Target/YaRISC/YaRISCSubtarget.h
+new file mode 100644
+index 000000000000..3f193dc615b8
+--- /dev/null
++++ b/llvm/lib/Target/YaRISC/YaRISCSubtarget.h
+@@ -0,0 +1,97 @@
++//===-- YaRISCSubtarget.h - Subtarget for the YaRISC ------------*- C++ -*-===//
++//
++// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
++// See https://llvm.org/LICENSE.txt for license information.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++//
++//===----------------------------------------------------------------------===//
++//
++// This file declares the YaRISC specific subclass of TargetSubtargetInfo.
++//
++//===----------------------------------------------------------------------===//
++
++#ifndef LLVM_LIB_TARGET_YARISC_YARISCSUBTARGET_H
++#define LLVM_LIB_TARGET_YARISC_YARISCSUBTARGET_H
++
++#include "MCTargetDesc/YaRISCMCTargetDesc.h"
++#include "YaRISCFrameLowering.h"
++#include "YaRISCISelLowering.h"
++#include "YaRISCInstrInfo.h"
++#include "llvm/CodeGen/TargetSubtargetInfo.h"
++#include "llvm/IR/DataLayout.h"
++#include "llvm/Support/ErrorHandling.h"
++#include "llvm/TargetParser/Triple.h"
++
++#define GET_SUBTARGETINFO_HEADER
++#include "YaRISCGenSubtargetInfo.inc"
++
++namespace llvm {
++class StringRef;
++
++class YaRISCSubtarget : public YaRISCGenSubtargetInfo {
++  // ReserveRegister[i] - Register #i is not available as a general purpose
++  // register.
++  BitVector ReserveRegister;
++
++  virtual void anchor();
++
++#define GET_SUBTARGETINFO_MACRO(ATTRIBUTE, DEFAULT, GETTER)                    \
++  bool ATTRIBUTE = DEFAULT;
++#include "YaRISCGenSubtargetInfo.inc"
++
++  YaRISCInstrInfo InstrInfo;
++  YaRISCTargetLowering TLInfo;
++  std::unique_ptr<const SelectionDAGTargetInfo> TSInfo;
++  YaRISCFrameLowering FrameLowering;
++
++public:
++  YaRISCSubtarget(const StringRef &CPU, const StringRef &TuneCPU,
++                  const StringRef &FS, const TargetMachine &TM);
++
++  ~YaRISCSubtarget() override;
++
++  const YaRISCInstrInfo *getInstrInfo() const override { return &InstrInfo; }
++  const TargetFrameLowering *getFrameLowering() const override {
++    return &FrameLowering;
++  }
++  const YaRISCRegisterInfo *getRegisterInfo() const override {
++    return &InstrInfo.getRegisterInfo();
++  }
++  const YaRISCTargetLowering *getTargetLowering() const override {
++    return &TLInfo;
++  }
++
++  const SelectionDAGTargetInfo *getSelectionDAGInfo() const override;
++
++  void initLibcallLoweringInfo(LibcallLoweringInfo &Info) const override;
++
++  bool enableMachineScheduler() const override;
++
++#define GET_SUBTARGETINFO_MACRO(ATTRIBUTE, DEFAULT, GETTER)                    \
++  bool GETTER() const { return ATTRIBUTE; }
++#include "YaRISCGenSubtargetInfo.inc"
++
++  /// ParseSubtargetFeatures - Parses features string setting specified
++  /// subtarget options.  Definition of function is auto generated by tblgen.
++  void ParseSubtargetFeatures(StringRef CPU, StringRef TuneCPU, StringRef FS);
++  YaRISCSubtarget &initializeSubtargetDependencies(StringRef CPU,
++                                                   StringRef TuneCPU,
++                                                   StringRef FS);
++
++  /// The 64-bit ABI uses biased stack and frame pointers, so the stack frame
++  /// of the current function is the area from [%sp+BIAS] to [%fp+BIAS].
++  int64_t getStackPointerBias() const { return 0; }
++
++  bool isRegisterReserved(MCPhysReg PhysReg) const {
++    return ReserveRegister[PhysReg];
++  }
++
++  /// Given a actual stack size as determined by FrameInfo, this function
++  /// returns adjusted framesize which includes space for register window
++  /// spills and arguments.
++  int getAdjustedFrameSize(int stackSize) const;
++};
++
++} // namespace llvm
++
++#endif // LLVM_LIB_TARGET_YARISC_YARISCSUBTARGET_H
+diff --git a/llvm/lib/Target/YaRISC/YaRISCTargetMachine.cpp b/llvm/lib/Target/YaRISC/YaRISCTargetMachine.cpp
+new file mode 100644
+index 000000000000..420b189b6cff
+--- /dev/null
++++ b/llvm/lib/Target/YaRISC/YaRISCTargetMachine.cpp
+@@ -0,0 +1,145 @@
++//===-- YaRISCTargetMachine.cpp - TargetMachine for YaRISC ----------------===//
++//
++// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
++// See https://llvm.org/LICENSE.txt for license information.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++//
++//===----------------------------------------------------------------------===//
++//
++//
++//===----------------------------------------------------------------------===//
++
++#include "YaRISCTargetMachine.h"
++#include "TargetInfo/YaRISCTargetInfo.h"
++#include "YaRISC.h"
++#include "YaRISCMachineFunctionInfo.h"
++#include "llvm/CodeGen/Passes.h"
++#include "llvm/CodeGen/TargetLoweringObjectFileImpl.h"
++#include "llvm/CodeGen/TargetPassConfig.h"
++#include "llvm/MC/TargetRegistry.h"
++#include "llvm/Support/Compiler.h"
++#include <optional>
++
++using namespace llvm;
++
++extern "C" LLVM_ABI LLVM_EXTERNAL_VISIBILITY void LLVMInitializeYaRISCTarget() {
++  // Register the target.
++  RegisterTargetMachine<YaRISCTargetMachine> X(getTheYaRISCTarget());
++
++  PassRegistry &PR = *PassRegistry::getPassRegistry();
++  initializeYaRISCAsmPrinterPass(PR);
++  initializeYaRISCDAGToDAGISelLegacyPass(PR);
++}
++
++static Reloc::Model getEffectiveRelocModel(std::optional<Reloc::Model> RM) {
++  if (!RM)
++    return Reloc::Static;
++
++  if (*RM == Reloc::PIC_) {
++    // The call lowering currently expects absolute addresses. No PC-relative
++    // addressing is implemented.
++    report_fatal_error("PIC is currently not supported", false);
++  }
++
++  return *RM;
++}
++
++static CodeModel::Model
++getEffectiveYaRISCCodeModel(std::optional<CodeModel::Model> CM,
++                            Reloc::Model RM) {
++  if (CM) {
++    if (*CM == CodeModel::Tiny)
++      report_fatal_error("Target does not support the tiny CodeModel", false);
++    if (*CM == CodeModel::Kernel)
++      report_fatal_error("Target does not support the kernel CodeModel", false);
++    return *CM;
++  }
++  return CodeModel::Small;
++}
++
++void YaRISCTargetMachine::anchor() {}
++
++YaRISCTargetMachine::YaRISCTargetMachine(const Target &T, const Triple &TT,
++                                         StringRef CPU, StringRef FS,
++                                         const TargetOptions &Options,
++                                         std::optional<Reloc::Model> RM,
++                                         std::optional<CodeModel::Model> CM,
++                                         CodeGenOptLevel OL, bool JIT)
++    : CodeGenTargetMachineImpl(
++          T, TT.computeDataLayout(), TT, CPU, FS, Options,
++          getEffectiveRelocModel(RM),
++          getEffectiveYaRISCCodeModel(CM, getEffectiveRelocModel(RM)), OL),
++      TLOF(std::make_unique<TargetLoweringObjectFileELF>()) {
++  initAsmInfo();
++}
++
++YaRISCTargetMachine::~YaRISCTargetMachine() = default;
++
++const YaRISCSubtarget *
++YaRISCTargetMachine::getSubtargetImpl(const Function &F) const {
++  Attribute CPUAttr = F.getFnAttribute("target-cpu");
++  Attribute TuneAttr = F.getFnAttribute("tune-cpu");
++  Attribute FSAttr = F.getFnAttribute("target-features");
++
++  std::string CPU =
++      CPUAttr.isValid() ? CPUAttr.getValueAsString().str() : TargetCPU;
++  std::string TuneCPU =
++      TuneAttr.isValid() ? TuneAttr.getValueAsString().str() : CPU;
++  std::string FS =
++      FSAttr.isValid() ? FSAttr.getValueAsString().str() : TargetFS;
++
++  // FIXME: This is related to the code below to reset the target options,
++  // we need to know whether or not the soft float flag is set on the
++  // function, so we can enable it as a subtarget feature.
++  bool softFloat = F.getFnAttribute("use-soft-float").getValueAsBool();
++
++  if (softFloat)
++    FS += FS.empty() ? "+soft-float" : ",+soft-float";
++
++  auto &I = SubtargetMap[CPU + FS];
++  if (!I) {
++    // This needs to be done before we create a new subtarget since any
++    // creation will depend on the TM and the code generation flags on the
++    // function that reside in TargetOptions.
++    resetTargetOptions(F);
++    I = std::make_unique<YaRISCSubtarget>(CPU, TuneCPU, FS, *this);
++  }
++  return I.get();
++}
++
++MachineFunctionInfo *YaRISCTargetMachine::createMachineFunctionInfo(
++    BumpPtrAllocator &Allocator, const Function &F,
++    const TargetSubtargetInfo *STI) const {
++  return YaRISCMachineFunctionInfo::create<YaRISCMachineFunctionInfo>(Allocator,
++                                                                      F, STI);
++}
++
++namespace {
++/// YaRISC Code Generator Pass Configuration Options.
++class YaRISCPassConfig : public TargetPassConfig {
++public:
++  YaRISCPassConfig(YaRISCTargetMachine &TM, PassManagerBase &PM)
++      : TargetPassConfig(TM, PM) {}
++
++  YaRISCTargetMachine &getYaRISCTargetMachine() const {
++    return getTM<YaRISCTargetMachine>();
++  }
++
++  bool addInstSelector() override;
++  void addPreEmitPass() override;
++};
++} // namespace
++
++TargetPassConfig *YaRISCTargetMachine::createPassConfig(PassManagerBase &PM) {
++  return new YaRISCPassConfig(*this, PM);
++}
++
++bool YaRISCPassConfig::addInstSelector() {
++  addPass(createYaRISCISelDag(getYaRISCTargetMachine()));
++  return false;
++}
++
++void YaRISCPassConfig::addPreEmitPass() {
++  // Check and replace branches when they become "too far".
++  addPass(&BranchRelaxationPassID);
++}
+diff --git a/llvm/lib/Target/YaRISC/YaRISCTargetMachine.h b/llvm/lib/Target/YaRISC/YaRISCTargetMachine.h
+new file mode 100644
+index 000000000000..acfa8d487610
+--- /dev/null
++++ b/llvm/lib/Target/YaRISC/YaRISCTargetMachine.h
+@@ -0,0 +1,53 @@
++//===-- YaRISCTargetMachine.h - TargetMachine for YaRISC --------*- C++ -*-===//
++//
++// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
++// See https://llvm.org/LICENSE.txt for license information.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++//
++//===----------------------------------------------------------------------===//
++//
++// This file declares the YaRISC specific subclass of TargetMachine.
++//
++//===----------------------------------------------------------------------===//
++
++#ifndef LLVM_LIB_TARGET_YARISC_YARISCTARGETMACHINE_H
++#define LLVM_LIB_TARGET_YARISC_YARISCTARGETMACHINE_H
++
++#include "YaRISCInstrInfo.h"
++#include "YaRISCSubtarget.h"
++#include "llvm/CodeGen/CodeGenTargetMachineImpl.h"
++#include "llvm/Target/TargetMachine.h"
++#include <optional>
++
++namespace llvm {
++
++class YaRISCTargetMachine : public CodeGenTargetMachineImpl {
++  std::unique_ptr<TargetLoweringObjectFile> TLOF;
++  mutable StringMap<std::unique_ptr<YaRISCSubtarget>> SubtargetMap;
++
++  virtual void anchor();
++
++public:
++  YaRISCTargetMachine(const Target &T, const Triple &TT, StringRef CPU,
++                      StringRef FS, const TargetOptions &Options,
++                      std::optional<Reloc::Model> RM,
++                      std::optional<CodeModel::Model> CM, CodeGenOptLevel OL,
++                      bool JIT);
++  ~YaRISCTargetMachine() override;
++
++  const YaRISCSubtarget *getSubtargetImpl(const Function &F) const override;
++
++  // Pass Pipeline Configuration
++  TargetPassConfig *createPassConfig(PassManagerBase &PM) override;
++  TargetLoweringObjectFile *getObjFileLowering() const override {
++    return TLOF.get();
++  }
++
++  MachineFunctionInfo *
++  createMachineFunctionInfo(BumpPtrAllocator &Allocator, const Function &F,
++                            const TargetSubtargetInfo *STI) const override;
++};
++
++} // namespace llvm
++
++#endif // LLVM_LIB_TARGET_YARISC_YARISCTARGETMACHINE_H
+diff --git a/llvm/lib/TargetParser/TargetDataLayout.cpp b/llvm/lib/TargetParser/TargetDataLayout.cpp
+index 981c5561211d..4faa844609f6 100644
+--- a/llvm/lib/TargetParser/TargetDataLayout.cpp
++++ b/llvm/lib/TargetParser/TargetDataLayout.cpp
+@@ -602,6 +602,8 @@ std::string Triple::computeDataLayout(StringRef ABIName) const {
+     return "e-m:e-p:32:32-i1:8:32-i8:8:32-i16:16:32-i64:32-f64:32-a:0:32-n32";
+   case Triple::xtensa:
+     return "e-m:e-p:32:32-i8:8:32-i16:16:32-i64:64-n32";
++  case Triple::yarisc:
++    return "e-m:e-p:16:16-i16:16:16-i32:16-i64:16-f32:16-f64:16-a:8-n16-S16";
+   case Triple::nvptx:
+   case Triple::nvptx64:
+     return computeNVPTXDataLayout(*this, ABIName);
+diff --git a/llvm/lib/TargetParser/Triple.cpp b/llvm/lib/TargetParser/Triple.cpp
+index 2577b15b1999..7ff7b7d5e072 100644
+--- a/llvm/lib/TargetParser/Triple.cpp
++++ b/llvm/lib/TargetParser/Triple.cpp
+@@ -88,6 +88,7 @@ StringRef Triple::getArchTypeName(ArchType Kind) {
+   case x86_64:         return "x86_64";
+   case xcore:          return "xcore";
+   case xtensa:         return "xtensa";
++  case yarisc:         return "yarisc";
+   }
+ 
+   llvm_unreachable("Invalid ArchType!");
+@@ -259,6 +260,8 @@ StringRef Triple::getArchTypePrefix(ArchType Kind) {
+   case dxil:        return "dx";
+ 
+   case xtensa:      return "xtensa";
++
++  case yarisc:      return "yarisc";
+   }
+ }
+ 
+@@ -512,6 +515,7 @@ Triple::ArchType Triple::getArchTypeForLLVMName(StringRef Name) {
+       .Case("loongarch64", loongarch64)
+       .Case("dxil", dxil)
+       .Case("xtensa", xtensa)
++      .Case("yarisc", yarisc)
+       .Default(UnknownArch);
+ }
+ 
+@@ -664,6 +668,7 @@ static Triple::ArchType parseArch(StringRef ArchName) {
+                   "dxilv1.9"},
+                  Triple::dxil)
+           .Case("xtensa", Triple::xtensa)
++          .Case("yarisc", Triple::yarisc)
+           .Default(Triple::UnknownArch);
+ 
+   // Some architectures require special parsing logic just to compute the
+@@ -1019,6 +1024,7 @@ static Triple::ObjectFormatType getDefaultFormat(const Triple &T) {
+   case Triple::ve:
+   case Triple::xcore:
+   case Triple::xtensa:
++  case Triple::yarisc:
+     return Triple::ELF;
+ 
+   case Triple::mipsel:
+@@ -1708,6 +1714,7 @@ unsigned Triple::getArchPointerBitWidth(llvm::Triple::ArchType Arch) {
+ 
+   case llvm::Triple::avr:
+   case llvm::Triple::msp430:
++  case llvm::Triple::yarisc:
+     return 16;
+ 
+   case llvm::Triple::aarch64_32:
+@@ -1817,6 +1824,7 @@ Triple Triple::get32BitArchVariant() const {
+   case Triple::msp430:
+   case Triple::systemz:
+   case Triple::ve:
++  case Triple::yarisc:
+     T.setArch(UnknownArch);
+     break;
+ 
+@@ -1909,6 +1917,7 @@ Triple Triple::get64BitArchVariant() const {
+   case Triple::tcele:
+   case Triple::xcore:
+   case Triple::xtensa:
++  case Triple::yarisc:
+     T.setArch(UnknownArch);
+     break;
+ 
+@@ -2010,6 +2019,7 @@ Triple Triple::getBigEndianArchVariant() const {
+   case Triple::ve:
+   case Triple::csky:
+   case Triple::xtensa:
++  case Triple::yarisc:
+ 
+   // ARM is intentionally unsupported here, changing the architecture would
+   // drop any arch suffixes.
+@@ -2131,6 +2141,7 @@ bool Triple::isLittleEndian() const {
+   case Triple::x86_64:
+   case Triple::xcore:
+   case Triple::xtensa:
++  case Triple::yarisc:
+     return true;
+   default:
+     return false;
+@@ -2355,6 +2366,8 @@ ExceptionHandling Triple::getDefaultExceptionHandling() const {
+   case Triple::xcore:
+   case Triple::xtensa:
+     return ExceptionHandling::DwarfCFI;
++  case Triple::yarisc:
++    return ExceptionHandling::None;
+   default:
+     break;
+   }
