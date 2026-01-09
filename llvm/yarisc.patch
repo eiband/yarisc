@@ -1879,10 +1879,10 @@ index 000000000000..6c62011633ee
 +}
 diff --git a/llvm/lib/Target/YaRISC/YaRISCAsmPrinter.cpp b/llvm/lib/Target/YaRISC/YaRISCAsmPrinter.cpp
 new file mode 100644
-index 000000000000..64e98d5efdd5
+index 000000000000..d949c68c611f
 --- /dev/null
 +++ b/llvm/lib/Target/YaRISC/YaRISCAsmPrinter.cpp
-@@ -0,0 +1,116 @@
+@@ -0,0 +1,126 @@
 +//===-- YaRISCAsmPrinter.cpp - YaRISC LLVM assembly writer ----------------===//
 +//
 +// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
@@ -1943,6 +1943,16 @@ index 000000000000..64e98d5efdd5
 +} // namespace
 +
 +void YaRISCAsmPrinter::emitInstruction(const MachineInstr *MI) {
++  if (MI->isBundle()) {
++    const MachineBasicBlock *MBB = MI->getParent();
++    MachineBasicBlock::const_instr_iterator I = ++MI->getIterator();
++    while (I != MBB->instr_end() && I->isInsideBundle()) {
++      emitInstruction(&*I);
++      ++I;
++    }
++    return;
++  }
++
 +  if (MI->isPseudo())
 +    return;
 +
@@ -2001,10 +2011,10 @@ index 000000000000..64e98d5efdd5
 +}
 diff --git a/llvm/lib/Target/YaRISC/YaRISCCallingConv.td b/llvm/lib/Target/YaRISC/YaRISCCallingConv.td
 new file mode 100644
-index 000000000000..3477ff3ab1cd
+index 000000000000..f382ccb7efcd
 --- /dev/null
 +++ b/llvm/lib/Target/YaRISC/YaRISCCallingConv.td
-@@ -0,0 +1,27 @@
+@@ -0,0 +1,29 @@
 +//===-- YaRISCCallingConv.td - Calling Conventions YaRISC --*- tablegen -*-===//
 +//
 +// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
@@ -2019,6 +2029,7 @@ index 000000000000..3477ff3ab1cd
 +
 +def CC_YaRISC : CallingConv<[
 +  // TODO: YaRISC
++  CCIfType<[i1, i8], CCPromoteToType<i16>>,
 +  CCIfType<[i16], CCAssignToReg<[R0, R1]>>,
 +  CCIfType<[i32], CCAssignToReg<[R0, R1]>>,
 +  // Alternatively, they are assigned to the stack in 2-byte aligned units.
@@ -2027,6 +2038,7 @@ index 000000000000..3477ff3ab1cd
 +
 +def RetCC_YaRISC : CallingConv<[
 +  // TODO: YaRISC
++  CCIfType<[i1, i8], CCPromoteToType<i16>>,
 +  CCIfType<[i16], CCAssignToReg<[R0, R1]>>,
 +  CCIfType<[i32], CCAssignToReg<[R0, R1]>>
 +]>;
@@ -2034,10 +2046,10 @@ index 000000000000..3477ff3ab1cd
 +def CSR : CalleeSavedRegs<(add R3, R4, R5)>;
 diff --git a/llvm/lib/Target/YaRISC/YaRISCFrameLowering.cpp b/llvm/lib/Target/YaRISC/YaRISCFrameLowering.cpp
 new file mode 100644
-index 000000000000..57a646dd99c0
+index 000000000000..d282369d5f0f
 --- /dev/null
 +++ b/llvm/lib/Target/YaRISC/YaRISCFrameLowering.cpp
-@@ -0,0 +1,123 @@
+@@ -0,0 +1,102 @@
 +//===-- YaRISCFrameLowering.cpp - YaRISC Frame Information ----------------===//
 +//
 +// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
@@ -2052,7 +2064,6 @@ index 000000000000..57a646dd99c0
 +
 +#include "YaRISCFrameLowering.h"
 +#include "YaRISCInstrInfo.h"
-+#include "YaRISCMachineFunctionInfo.h"
 +#include "YaRISCSubtarget.h"
 +#include "llvm/CodeGen/CFIInstBuilder.h"
 +#include "llvm/CodeGen/MachineFrameInfo.h"
@@ -2109,26 +2120,6 @@ index 000000000000..57a646dd99c0
 +  adjustSP(MBB, MBBI, DL, TII, static_cast<int64_t>(StackSize));
 +}
 +
-+void YaRISCFrameLowering::determineCalleeSaves(MachineFunction &MF,
-+                                               BitVector &SavedRegs,
-+                                               RegScavenger *RS) const {
-+  TargetFrameLowering::determineCalleeSaves(MF, SavedRegs, RS);
-+
-+  const TargetRegisterClass &RC = YaRISC::GPRRegClass;
-+  const TargetRegisterInfo &TRI = *MF.getSubtarget().getRegisterInfo();
-+  YaRISCMachineFunctionInfo &MFI = *MF.getInfo<YaRISCMachineFunctionInfo>();
-+
-+  // For now always reserve an emergency spill slot that we might need to
-+  // calculate the return address in the expansion of the pseudo call
-+  // instruction.
-+  unsigned Size = TRI.getSpillSize(RC);
-+  // TODO: YaRISC adapt calling convention to always make room for a spill slot.
-+  int FI = MF.getFrameInfo().CreateFixedObject(Size, -Size, false);
-+  MFI.setEmergencySpillFrameIndex(FI);
-+  if (RS)
-+    RS->addScavengingFrameIndex(FI);
-+}
-+
 +MachineBasicBlock::iterator YaRISCFrameLowering::eliminateCallFramePseudoInstr(
 +    MachineFunction &MF, MachineBasicBlock &MBB,
 +    MachineBasicBlock::iterator I) const {
@@ -2163,10 +2154,10 @@ index 000000000000..57a646dd99c0
 +}
 diff --git a/llvm/lib/Target/YaRISC/YaRISCFrameLowering.h b/llvm/lib/Target/YaRISC/YaRISCFrameLowering.h
 new file mode 100644
-index 000000000000..5296ab83576b
+index 000000000000..348bbff62e79
 --- /dev/null
 +++ b/llvm/lib/Target/YaRISC/YaRISCFrameLowering.h
-@@ -0,0 +1,45 @@
+@@ -0,0 +1,42 @@
 +//===-- YaRISCFrameLowering.h - Frame lowering for YaRISC -------*- C++ -*-===//
 +//
 +// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
@@ -2197,9 +2188,6 @@ index 000000000000..5296ab83576b
 +  /// the function.
 +  void emitPrologue(MachineFunction &MF, MachineBasicBlock &MBB) const override;
 +  void emitEpilogue(MachineFunction &MF, MachineBasicBlock &MBB) const override;
-+
-+  void determineCalleeSaves(MachineFunction &MF, BitVector &SavedRegs,
-+                            RegScavenger *RS = nullptr) const override;
 +
 +  MachineBasicBlock::iterator
 +  eliminateCallFramePseudoInstr(MachineFunction &MF, MachineBasicBlock &MBB,
@@ -2850,10 +2838,10 @@ index 000000000000..136d76d4e131
 +}
 diff --git a/llvm/lib/Target/YaRISC/YaRISCInstrInfo.cpp b/llvm/lib/Target/YaRISC/YaRISCInstrInfo.cpp
 new file mode 100644
-index 000000000000..b32ad0523ac2
+index 000000000000..c8f5ae2b48b8
 --- /dev/null
 +++ b/llvm/lib/Target/YaRISC/YaRISCInstrInfo.cpp
-@@ -0,0 +1,186 @@
+@@ -0,0 +1,178 @@
 +//===-- YaRISCInstrInfo.cpp - YaRISC Instruction Information --------------===//
 +//
 +// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
@@ -2868,14 +2856,12 @@ index 000000000000..b32ad0523ac2
 +
 +#include "YaRISCInstrInfo.h"
 +#include "YaRISC.h"
-+#include "YaRISCMachineFunctionInfo.h"
 +#include "YaRISCSubtarget.h"
 +#include "llvm/ADT/SmallVector.h"
 +#include "llvm/CodeGen/MachineFrameInfo.h"
 +#include "llvm/CodeGen/MachineInstrBuilder.h"
 +#include "llvm/CodeGen/MachineMemOperand.h"
 +#include "llvm/CodeGen/MachineRegisterInfo.h"
-+#include "llvm/CodeGen/RegisterScavenging.h"
 +#include "llvm/Support/ErrorHandling.h"
 +
 +using namespace llvm;
@@ -2956,60 +2942,54 @@ index 000000000000..b32ad0523ac2
 +
 +bool YaRISCInstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
 +  MachineBasicBlock &MBB = *MI.getParent();
-+  DebugLoc DL = MI.getDebugLoc();
++  const DebugLoc &DL = MI.getDebugLoc();
 +
 +  switch (MI.getOpcode()) {
 +  case YaRISC::CALL: {
-+    MachineOperand &TargetOp = MI.getOperand(0);
 +    MachineFunction &MF = *MBB.getParent();
-+    const TargetInstrInfo &TII = *MF.getSubtarget().getInstrInfo();
-+    const TargetRegisterClass &RC = YaRISC::GPRRegClass;
-+    const YaRISCMachineFunctionInfo MFI =
-+        *MF.getInfo<YaRISCMachineFunctionInfo>();
 +
-+    MachineBasicBlock::iterator MBBI = MI.getIterator();
-+    MachineBasicBlock::iterator NextMBBI = std::next(MBBI);
-+
-+    RegScavenger RS;
-+    RS.enterBasicBlockEnd(MBB);
-+    RS.backward(MBBI);
-+
-+    Register TmpReg = RS.FindUnusedReg(&RC);
-+    if (!TmpReg.isValid()) {
-+      // TODO: YaRISC I don't quite get this interface. Is there no other way?
-+      RS.enterBasicBlockEnd(MBB);
-+      RS.addScavengingFrameIndex(MFI.getEmergencySpillFrameIndex());
-+      RS.backward(NextMBBI);
-+      TmpReg = RS.scavengeRegisterBackwards(RC, MBBI, false, 0);
-+    }
-+
-+    // There should always be an emergency spill slot.
-+    assert(TmpReg.isValid());
-+
-+    // Adjust the offset to spill restore instructions.
-+    int64_t RetOffset = 6;
-+    for (auto II = MBBI; II != NextMBBI; ++II)
-+      RetOffset += TII.getInstSizeInBytes(*II);
-+
++    // Make room on the stack for the return address.
 +    BuildMI(MBB, MI, DL, get(YaRISC::ADDri4), YaRISC::SP)
 +        .addReg(YaRISC::SP)
 +        .addImm(-2);
 +
-+    // ADDri4 only supports input and output register to be the same.
-+    BuildMI(MBB, MI, DL, get(YaRISC::ADDri16), TmpReg)
-+        .addReg(YaRISC::IP)
-+        .addImm(RetOffset);
++    // The following sequence must stay together because we hard code the offset
++    // until after the jump.
++    MIBundleBuilder Bundle(MBB, MI);
 +
-+    BuildMI(MBB, MI, DL, get(YaRISC::STXspi4)).addReg(TmpReg).addImm(0);
++    // The final two instructions occupy six bytes in total. R2 is marked as
++    // implicitly defined. ADDri4 only supports input and output register to be
++    // the same.
++    BuildMI(MBB, MI, DL, get(YaRISC::ADDri16), YaRISC::R2)
++        .addReg(YaRISC::IP)
++        .addImm(6);
++
++    // Alternative to the previous instruction which also requires four bytes
++    // just like the ADDri16 instruction:
++    //
++    // Bundle.append(BuildMI(MF, DL, get(YaRISC::MOVi4), YaRISC::R2).addImm(6));
++    // Bundle.append(BuildMI(MF, DL, get(YaRISC::ADDrr), YaRISC::R2)
++    //                   .addReg(YaRISC::R2)
++    //                   .addReg(YaRISC::IP));
++
++    // Store the calculated return address onto the stack.
++    Bundle.append(BuildMI(MF, DL, get(YaRISC::STRr))
++                      .addReg(YaRISC::R2)
++                      .addReg(YaRISC::SP));
 +
 +    // Position independent code is not supported.
-+    BuildMI(MBB, NextMBBI, DL, get(YaRISC::MOVi16), YaRISC::IP).add(TargetOp);
++    Bundle.append(
++        BuildMI(MF, DL, get(YaRISC::MOVi16), YaRISC::IP).add(MI.getOperand(0)));
++
++    finalizeBundle(MBB, Bundle.begin(), Bundle.end());
 +  } break;
 +  case YaRISC::RET: {
++    // Update the stack pointer to pop the return address.
 +    BuildMI(MBB, MI, DL, get(YaRISC::ADDri4), YaRISC::SP)
 +        .addReg(YaRISC::SP)
 +        .addImm(2);
 +
++    // Load the return address from the stack into the instruction pointer.
 +    BuildMI(MBB, MI, DL, get(YaRISC::LDXspi4), YaRISC::IP).addImm(-2);
 +  } break;
 +  default:
@@ -3130,10 +3110,10 @@ index 000000000000..29a0f8b881ae
 +#endif // LLVM_LIB_TARGET_YARISC_YARISCINSTRINFO_H
 diff --git a/llvm/lib/Target/YaRISC/YaRISCInstrInfo.td b/llvm/lib/Target/YaRISC/YaRISCInstrInfo.td
 new file mode 100644
-index 000000000000..e91df57ea4fe
+index 000000000000..090788fa8d5c
 --- /dev/null
 +++ b/llvm/lib/Target/YaRISC/YaRISCInstrInfo.td
-@@ -0,0 +1,273 @@
+@@ -0,0 +1,270 @@
 +//===-- YaRISCInstrInfo.td - Target Description for YaRISC Target ---------===//
 +//
 +// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
@@ -3384,9 +3364,7 @@ index 000000000000..e91df57ea4fe
 +  let isPseudo = 1;
 +}
 +
-+// These pseudo instructions are turned into ADD/SUB instructions, so they might
-+// set the status flags.
-+let Defs = [SP, NZCV], Uses = [SP] in {
++let Defs = [SP], Uses = [SP] in {
 +  def ADJCALLSTACKDOWN : Pseudo<(outs), (ins i16imm:$amt, i16imm:$align),
 +                                "#ADJCALLSTACKDOWN $amt $align",
 +                                [(callseq_start timm:$amt, timm:$align)] >;
@@ -3395,74 +3373,17 @@ index 000000000000..e91df57ea4fe
 +                              [(callseq_end timm:$amt, timm:$align)] >;
 +}
 +
-+// CALL and RET in the minimal configuration are turned into seqences that use
-+// the ADD instruction, so they might set the status flags.
-+let Defs = [SP, IP, NZCV], Uses = [SP] in {
-+  let isCall = true, isTerminator = true in
++let Uses = [SP] in {
++  // Register R2 is used to calculate the return address.
++  let Defs = [SP, IP, R2], isCall = 1 in
 +  def CALL : Pseudo<(outs), (ins calltarget:$target), "#CALL $target", []>;
-+  let isTerminator = true, isReturn = true, isBarrier = true in
++  let Defs = [SP, IP], isTerminator = 1, isReturn = 1, isBarrier = 1 in
 +  def RET : Pseudo<(outs), (ins), "#RET", []>;
 +}
 +
 +def : Pat<(call tglobaladdr:$target), (CALL tglobaladdr:$target)>;
 +def : Pat<(call texternalsym:$target), (CALL texternalsym:$target)>;
 +def : Pat<(ret), (RET)>;
-diff --git a/llvm/lib/Target/YaRISC/YaRISCMachineFunctionInfo.h b/llvm/lib/Target/YaRISC/YaRISCMachineFunctionInfo.h
-new file mode 100644
-index 000000000000..a09e1ed95960
---- /dev/null
-+++ b/llvm/lib/Target/YaRISC/YaRISCMachineFunctionInfo.h
-@@ -0,0 +1,50 @@
-+//=- YaRISCMachineFunctionInfo.h ------- YaRISC machine function info -----===//
-+//
-+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
-+// See https://llvm.org/LICENSE.txt for license information.
-+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
-+//
-+//===----------------------------------------------------------------------===//
-+//
-+// This file declares YaRISC-specific per-machine-function information.
-+//
-+//===----------------------------------------------------------------------===//
-+
-+#ifndef LLVM_LIB_TARGET_YARISC_YARISCMACHINEFUNCTIONINFO_H
-+#define LLVM_LIB_TARGET_YARISC_YARISCMACHINEFUNCTIONINFO_H
-+
-+#include "llvm/CodeGen/MachineFrameInfo.h"
-+#include "llvm/CodeGen/MachineFunction.h"
-+
-+namespace llvm {
-+
-+/// YaRISCMachineFunctionInfo - This class is derived from
-+/// MachineFunctionInfo and contains private YaRISC-specific information for
-+/// each MachineFunction.
-+class YaRISCMachineFunctionInfo : public MachineFunctionInfo {
-+private:
-+  /// FrameIndex used for making a register available when calculating the
-+  /// return address of a call.
-+  int EmergencySpillFrameIndex = -1;
-+
-+public:
-+  YaRISCMachineFunctionInfo(const Function &F, const TargetSubtargetInfo *STI) {
-+  }
-+
-+  MachineFunctionInfo *
-+  clone(BumpPtrAllocator &Allocator, MachineFunction &DestMF,
-+        const DenseMap<MachineBasicBlock *, MachineBasicBlock *> &Src2DstMBB)
-+      const override {
-+    return DestMF.cloneInfo<YaRISCMachineFunctionInfo>(*this);
-+  }
-+
-+  int getEmergencySpillFrameIndex() const { return EmergencySpillFrameIndex; }
-+
-+  void setEmergencySpillFrameIndex(int Index) {
-+    EmergencySpillFrameIndex = Index;
-+  }
-+};
-+
-+} // namespace llvm
-+
-+#endif // LLVM_LIB_TARGET_YARISC_YARISCMACHINEFUNCTIONINFO_H
 diff --git a/llvm/lib/Target/YaRISC/YaRISCRegisterInfo.cpp b/llvm/lib/Target/YaRISC/YaRISCRegisterInfo.cpp
 new file mode 100644
 index 000000000000..7d9565fd52a4
@@ -3664,7 +3585,7 @@ index 000000000000..6a049d822298
 +#endif // LLVM_LIB_TARGET_YARISC_YARISCREGISTERINFO_H
 diff --git a/llvm/lib/Target/YaRISC/YaRISCRegisterInfo.td b/llvm/lib/Target/YaRISC/YaRISCRegisterInfo.td
 new file mode 100644
-index 000000000000..a1d9b99ec194
+index 000000000000..afbb3a5339bf
 --- /dev/null
 +++ b/llvm/lib/Target/YaRISC/YaRISCRegisterInfo.td
 @@ -0,0 +1,44 @@
@@ -3705,7 +3626,7 @@ index 000000000000..a1d9b99ec194
 +
 +// Register class for the general purpose registers.
 +def GPR : RegisterClass<"YaRISC", [i16], 16,
-+              (add R0, R1, R2, R3, R4, R5, SP, IP)>;
++                        (add R0, R1, R2, R3, R4, R5, SP, IP)>;
 +
 +// Register class for the status register.
 +def SR : RegisterClass<"YaRISC", [i16], 16, (add NZCV)> {
@@ -3977,10 +3898,10 @@ index 000000000000..3f193dc615b8
 +#endif // LLVM_LIB_TARGET_YARISC_YARISCSUBTARGET_H
 diff --git a/llvm/lib/Target/YaRISC/YaRISCTargetMachine.cpp b/llvm/lib/Target/YaRISC/YaRISCTargetMachine.cpp
 new file mode 100644
-index 000000000000..420b189b6cff
+index 000000000000..d91dad5a4ddc
 --- /dev/null
 +++ b/llvm/lib/Target/YaRISC/YaRISCTargetMachine.cpp
-@@ -0,0 +1,145 @@
+@@ -0,0 +1,138 @@
 +//===-- YaRISCTargetMachine.cpp - TargetMachine for YaRISC ----------------===//
 +//
 +// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
@@ -3989,13 +3910,13 @@ index 000000000000..420b189b6cff
 +//
 +//===----------------------------------------------------------------------===//
 +//
++// This file implements the YaRISC specific subclass of TargetMachine.
 +//
 +//===----------------------------------------------------------------------===//
 +
 +#include "YaRISCTargetMachine.h"
 +#include "TargetInfo/YaRISCTargetInfo.h"
 +#include "YaRISC.h"
-+#include "YaRISCMachineFunctionInfo.h"
 +#include "llvm/CodeGen/Passes.h"
 +#include "llvm/CodeGen/TargetLoweringObjectFileImpl.h"
 +#include "llvm/CodeGen/TargetPassConfig.h"
@@ -4090,13 +4011,6 @@ index 000000000000..420b189b6cff
 +  return I.get();
 +}
 +
-+MachineFunctionInfo *YaRISCTargetMachine::createMachineFunctionInfo(
-+    BumpPtrAllocator &Allocator, const Function &F,
-+    const TargetSubtargetInfo *STI) const {
-+  return YaRISCMachineFunctionInfo::create<YaRISCMachineFunctionInfo>(Allocator,
-+                                                                      F, STI);
-+}
-+
 +namespace {
 +/// YaRISC Code Generator Pass Configuration Options.
 +class YaRISCPassConfig : public TargetPassConfig {
@@ -4128,10 +4042,10 @@ index 000000000000..420b189b6cff
 +}
 diff --git a/llvm/lib/Target/YaRISC/YaRISCTargetMachine.h b/llvm/lib/Target/YaRISC/YaRISCTargetMachine.h
 new file mode 100644
-index 000000000000..acfa8d487610
+index 000000000000..a8df1a464949
 --- /dev/null
 +++ b/llvm/lib/Target/YaRISC/YaRISCTargetMachine.h
-@@ -0,0 +1,53 @@
+@@ -0,0 +1,49 @@
 +//===-- YaRISCTargetMachine.h - TargetMachine for YaRISC --------*- C++ -*-===//
 +//
 +// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
@@ -4176,10 +4090,6 @@ index 000000000000..acfa8d487610
 +  TargetLoweringObjectFile *getObjFileLowering() const override {
 +    return TLOF.get();
 +  }
-+
-+  MachineFunctionInfo *
-+  createMachineFunctionInfo(BumpPtrAllocator &Allocator, const Function &F,
-+                            const TargetSubtargetInfo *STI) const override;
 +};
 +
 +} // namespace llvm
