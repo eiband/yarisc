@@ -333,7 +333,7 @@ namespace yarisc::arch::detail
     [[nodiscard]] static execute_result execute(
       Policy&, machine_registers& reg, machine_memory&, address_t address) noexcept
     {
-      reg.named.set_ip(static_cast<word_t>(address));
+      reg.named.set_ip(reg.named.ip() + static_cast<word_t>(address));
 
       return {};
     }
@@ -378,7 +378,7 @@ namespace yarisc::arch::detail
         branch = !branch;
 
       if (branch)
-        reg.named.set_ip(static_cast<word_t>(address));
+        reg.named.set_ip(reg.named.ip() + static_cast<word_t>(address));
 
       return {};
     }

@@ -146,7 +146,7 @@ namespace yarisc::arch
    * - `1101`: greater unsigned
    *
    * Short branch addresses are always measured in words. Long addresses loaded from the next word are in bytes as
-   * usual.
+   * usual. Branch addresses are instruction pointer relative.
    *
    * Short immediate constants and short addresses are always sign-extended to keep the decoding simple.
    */

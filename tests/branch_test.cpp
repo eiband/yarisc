@@ -13,7 +13,7 @@ SCENARIO("execute the BRA instruction", "[instruction]")
 {
   using namespace yarisc::arch::assembly;
 
-  GIVEN("a test machine with a BRA to absolute short address `0x01fc` instruction")
+  GIVEN("a test machine with a BRA to short relative address `0x01fc` instruction")
   {
     yarisc::test::machine current{yarisc::arch::assemble<opcode::branch>(short_branch_address{0x01fc})};
 
@@ -30,11 +30,11 @@ SCENARIO("execute the BRA instruction", "[instruction]")
     WHEN("the instruction is executed")
     {
       yarisc::test::machine expected = current;
-      expected.set_ip(0x01fc);
+      expected.set_ip(0x0228);
 
       REQUIRE(current.execute_instruction());
 
-      THEN("the instruction pointer shall have the value `0x01fc`")
+      THEN("the instruction pointer shall have the value `0x0228`")
       {
         CHECK(current == expected);
       }
@@ -47,11 +47,11 @@ SCENARIO("execute the BRA instruction", "[instruction]")
       AND_WHEN("the instruction is executed")
       {
         yarisc::test::machine expected = current;
-        expected.set_ip(0x01fc);
+        expected.set_ip(0x0228);
 
         REQUIRE(current.execute_instruction());
 
-        THEN("the instruction pointer shall have the value `0x01fc`")
+        THEN("the instruction pointer shall have the value `0x0228`")
         {
           CHECK(current == expected);
         }
@@ -65,11 +65,11 @@ SCENARIO("execute the BRA instruction", "[instruction]")
       AND_WHEN("the instruction is executed")
       {
         yarisc::test::machine expected = current;
-        expected.set_ip(0x01fc);
+        expected.set_ip(0x0228);
 
         REQUIRE(current.execute_instruction());
 
-        THEN("the instruction pointer shall have the value `0x01fc`")
+        THEN("the instruction pointer shall have the value `0x0228`")
         {
           CHECK(current == expected);
         }
@@ -83,11 +83,11 @@ SCENARIO("execute the BRA instruction", "[instruction]")
       AND_WHEN("the instruction is executed")
       {
         yarisc::test::machine expected = current;
-        expected.set_ip(0x01fc);
+        expected.set_ip(0x0228);
 
         REQUIRE(current.execute_instruction());
 
-        THEN("the instruction pointer shall have the value `0x01fc`")
+        THEN("the instruction pointer shall have the value `0x0228`")
         {
           CHECK(current == expected);
         }
@@ -95,7 +95,7 @@ SCENARIO("execute the BRA instruction", "[instruction]")
     }
   }
 
-  GIVEN("a test machine with a BRA to absolute short address `0xffe0` instruction")
+  GIVEN("a test machine with a BRA to short relative address `0xffe0` instruction")
   {
     yarisc::test::machine current{yarisc::arch::assemble<opcode::branch>(short_branch_address{0xffe0})};
 
@@ -112,18 +112,18 @@ SCENARIO("execute the BRA instruction", "[instruction]")
     WHEN("the instruction is executed")
     {
       yarisc::test::machine expected = current;
-      expected.set_ip(0xffe0);
+      expected.set_ip(0xc);
 
       REQUIRE(current.execute_instruction());
 
-      THEN("the instruction pointer shall have the value `0xffe0`")
+      THEN("the instruction pointer shall have the value `0xc`")
       {
         CHECK(current == expected);
       }
     }
   }
 
-  GIVEN("a test machine with a BRA to absolute address `0x6124` instruction")
+  GIVEN("a test machine with a BRA to relative address `0x6124` instruction")
   {
     yarisc::test::machine current{yarisc::arch::assemble<opcode::branch>(immediate), 0x6124};
 
@@ -140,11 +140,11 @@ SCENARIO("execute the BRA instruction", "[instruction]")
     WHEN("the instruction is executed")
     {
       yarisc::test::machine expected = current;
-      expected.set_ip(0x6124);
+      expected.set_ip(0x6152);
 
       REQUIRE(current.execute_instruction());
 
-      THEN("the instruction pointer shall have the value `0x6124`")
+      THEN("the instruction pointer shall have the value `0x6152`")
       {
         CHECK(current == expected);
       }
@@ -157,11 +157,11 @@ SCENARIO("execute the BRA instruction", "[instruction]")
       AND_WHEN("the instruction is executed")
       {
         yarisc::test::machine expected = current;
-        expected.set_ip(0x6124);
+        expected.set_ip(0x6152);
 
         REQUIRE(current.execute_instruction());
 
-        THEN("the instruction pointer shall have the value `0x6124`")
+        THEN("the instruction pointer shall have the value `0x6152`")
         {
           CHECK(current == expected);
         }
@@ -175,11 +175,11 @@ SCENARIO("execute the BRA instruction", "[instruction]")
       AND_WHEN("the instruction is executed")
       {
         yarisc::test::machine expected = current;
-        expected.set_ip(0x6124);
+        expected.set_ip(0x6152);
 
         REQUIRE(current.execute_instruction());
 
-        THEN("the instruction pointer shall have the value `0x6124`")
+        THEN("the instruction pointer shall have the value `0x6152`")
         {
           CHECK(current == expected);
         }
@@ -193,11 +193,11 @@ SCENARIO("execute the BRA instruction", "[instruction]")
       AND_WHEN("the instruction is executed")
       {
         yarisc::test::machine expected = current;
-        expected.set_ip(0x6124);
+        expected.set_ip(0x6152);
 
         REQUIRE(current.execute_instruction());
 
-        THEN("the instruction pointer shall have the value `0x6124`")
+        THEN("the instruction pointer shall have the value `0x6152`")
         {
           CHECK(current == expected);
         }
@@ -210,7 +210,7 @@ SCENARIO("execute the BEQ instruction", "[instruction]")
 {
   using namespace yarisc::arch::assembly;
 
-  GIVEN("a test machine with a BEQ to absolute short address `0x1a` instruction")
+  GIVEN("a test machine with a BEQ to short relative address `0x1a` instruction")
   {
     yarisc::test::machine current{yarisc::arch::assemble<opcode::cond_branch>(eq, short_cond_branch_address{0x1a})};
 
@@ -244,11 +244,11 @@ SCENARIO("execute the BEQ instruction", "[instruction]")
       AND_WHEN("the instruction is executed")
       {
         yarisc::test::machine expected = current;
-        expected.set_ip(0x1a);
+        expected.set_ip(0x46);
 
         REQUIRE(current.execute_instruction());
 
-        THEN("the instruction pointer shall have the value `0x1a`")
+        THEN("the instruction pointer shall have the value `0x46`")
         {
           CHECK(current == expected);
         }
@@ -280,11 +280,11 @@ SCENARIO("execute the BEQ instruction", "[instruction]")
       AND_WHEN("the instruction is executed")
       {
         yarisc::test::machine expected = current;
-        expected.set_ip(0x1a);
+        expected.set_ip(0x46);
 
         REQUIRE(current.execute_instruction());
 
-        THEN("the instruction pointer shall have the value `0x1a`")
+        THEN("the instruction pointer shall have the value `0x46`")
         {
           CHECK(current == expected);
         }
@@ -292,7 +292,7 @@ SCENARIO("execute the BEQ instruction", "[instruction]")
     }
   }
 
-  GIVEN("a test machine with a BEQ to absolute short address `0xffe0` instruction")
+  GIVEN("a test machine with a BEQ to short relative address `0xffe0` instruction")
   {
     yarisc::test::machine current{yarisc::arch::assemble<opcode::cond_branch>(eq, short_cond_branch_address{0xffe0})};
 
@@ -313,11 +313,11 @@ SCENARIO("execute the BEQ instruction", "[instruction]")
       AND_WHEN("the instruction is executed")
       {
         yarisc::test::machine expected = current;
-        expected.set_ip(0xffe0);
+        expected.set_ip(0xc);
 
         REQUIRE(current.execute_instruction());
 
-        THEN("the instruction pointer shall have the value `0xffe0`")
+        THEN("the instruction pointer shall have the value `0xc`")
         {
           CHECK(current == expected);
         }
@@ -325,7 +325,7 @@ SCENARIO("execute the BEQ instruction", "[instruction]")
     }
   }
 
-  GIVEN("a test machine with a BEQ to absolute address `0x1ff0` instruction")
+  GIVEN("a test machine with a BEQ to relative address `0x1ff0` instruction")
   {
     yarisc::test::machine current{yarisc::arch::assemble<opcode::cond_branch>(eq, immediate), 0x1ff0};
 
@@ -359,11 +359,11 @@ SCENARIO("execute the BEQ instruction", "[instruction]")
       AND_WHEN("the instruction is executed")
       {
         yarisc::test::machine expected = current;
-        expected.set_ip(0x1ff0);
+        expected.set_ip(0x201e);
 
         REQUIRE(current.execute_instruction());
 
-        THEN("the instruction pointer shall have the value `0x1ff0`")
+        THEN("the instruction pointer shall have the value `0x201e`")
         {
           CHECK(current == expected);
         }
@@ -395,11 +395,11 @@ SCENARIO("execute the BEQ instruction", "[instruction]")
       AND_WHEN("the instruction is executed")
       {
         yarisc::test::machine expected = current;
-        expected.set_ip(0x1ff0);
+        expected.set_ip(0x201e);
 
         REQUIRE(current.execute_instruction());
 
-        THEN("the instruction pointer shall have the value `0x1ff0`")
+        THEN("the instruction pointer shall have the value `0x201e`")
         {
           CHECK(current == expected);
         }
@@ -412,7 +412,7 @@ SCENARIO("execute the BLT instruction", "[instruction]")
 {
   using namespace yarisc::arch::assembly;
 
-  GIVEN("a test machine with a BLT to absolute address `0x1ff0` instruction")
+  GIVEN("a test machine with a BLT to relative address `0x1ff0` instruction")
   {
     yarisc::test::machine current{yarisc::arch::assemble<opcode::cond_branch>(lt, immediate), 0x1ff0};
 
@@ -446,11 +446,11 @@ SCENARIO("execute the BLT instruction", "[instruction]")
       AND_WHEN("the instruction is executed")
       {
         yarisc::test::machine expected = current;
-        expected.set_ip(0x1ff0);
+        expected.set_ip(0x201e);
 
         REQUIRE(current.execute_instruction());
 
-        THEN("the instruction pointer shall have the value `0x1ff0`")
+        THEN("the instruction pointer shall have the value `0x201e`")
         {
           CHECK(current == expected);
         }
@@ -464,11 +464,11 @@ SCENARIO("execute the BLT instruction", "[instruction]")
       AND_WHEN("the instruction is executed")
       {
         yarisc::test::machine expected = current;
-        expected.set_ip(0x1ff0);
+        expected.set_ip(0x201e);
 
         REQUIRE(current.execute_instruction());
 
-        THEN("the instruction pointer shall have the value `0x1ff0`")
+        THEN("the instruction pointer shall have the value `0x201e`")
         {
           CHECK(current == expected);
         }
@@ -517,7 +517,7 @@ SCENARIO("execute the BLE instruction", "[instruction]")
 {
   using namespace yarisc::arch::assembly;
 
-  GIVEN("a test machine with a BLE to absolute address `0x1ff0` instruction")
+  GIVEN("a test machine with a BLE to relative address `0x1ff0` instruction")
   {
     yarisc::test::machine current{yarisc::arch::assemble<opcode::cond_branch>(le, immediate), 0x1ff0};
 
@@ -551,11 +551,11 @@ SCENARIO("execute the BLE instruction", "[instruction]")
       AND_WHEN("the instruction is executed")
       {
         yarisc::test::machine expected = current;
-        expected.set_ip(0x1ff0);
+        expected.set_ip(0x201e);
 
         REQUIRE(current.execute_instruction());
 
-        THEN("the instruction pointer shall have the value `0x1ff0`")
+        THEN("the instruction pointer shall have the value `0x201e`")
         {
           CHECK(current == expected);
         }
@@ -569,11 +569,11 @@ SCENARIO("execute the BLE instruction", "[instruction]")
       AND_WHEN("the instruction is executed")
       {
         yarisc::test::machine expected = current;
-        expected.set_ip(0x1ff0);
+        expected.set_ip(0x201e);
 
         REQUIRE(current.execute_instruction());
 
-        THEN("the instruction pointer shall have the value `0x1ff0`")
+        THEN("the instruction pointer shall have the value `0x201e`")
         {
           CHECK(current == expected);
         }
@@ -587,11 +587,11 @@ SCENARIO("execute the BLE instruction", "[instruction]")
       AND_WHEN("the instruction is executed")
       {
         yarisc::test::machine expected = current;
-        expected.set_ip(0x1ff0);
+        expected.set_ip(0x201e);
 
         REQUIRE(current.execute_instruction());
 
-        THEN("the instruction pointer shall have the value `0x1ff0`")
+        THEN("the instruction pointer shall have the value `0x201e`")
         {
           CHECK(current == expected);
         }
@@ -623,11 +623,11 @@ SCENARIO("execute the BLE instruction", "[instruction]")
       AND_WHEN("the instruction is executed")
       {
         yarisc::test::machine expected = current;
-        expected.set_ip(0x1ff0);
+        expected.set_ip(0x201e);
 
         REQUIRE(current.execute_instruction());
 
-        THEN("the instruction pointer shall have the value `0x1ff0`")
+        THEN("the instruction pointer shall have the value `0x201e`")
         {
           CHECK(current == expected);
         }
@@ -640,7 +640,7 @@ SCENARIO("execute the BLO instruction", "[instruction]")
 {
   using namespace yarisc::arch::assembly;
 
-  GIVEN("a test machine with a BLO to absolute address `0x1ff0` instruction")
+  GIVEN("a test machine with a BLO to relative address `0x1ff0` instruction")
   {
     yarisc::test::machine current{yarisc::arch::assemble<opcode::cond_branch>(lo, immediate), 0x1ff0};
 
@@ -657,11 +657,11 @@ SCENARIO("execute the BLO instruction", "[instruction]")
     WHEN("the instruction is executed")
     {
       yarisc::test::machine expected = current;
-      expected.set_ip(0x1ff0);
+      expected.set_ip(0x201e);
 
       REQUIRE(current.execute_instruction());
 
-      THEN("the instruction pointer shall have the value `0x1ff0`")
+      THEN("the instruction pointer shall have the value `0x201e`")
       {
         CHECK(current == expected);
       }
@@ -674,11 +674,11 @@ SCENARIO("execute the BLO instruction", "[instruction]")
       AND_WHEN("the instruction is executed")
       {
         yarisc::test::machine expected = current;
-        expected.set_ip(0x1ff0);
+        expected.set_ip(0x201e);
 
         REQUIRE(current.execute_instruction());
 
-        THEN("the instruction pointer shall have the value `0x1ff0`")
+        THEN("the instruction pointer shall have the value `0x201e`")
         {
           CHECK(current == expected);
         }
@@ -745,7 +745,7 @@ SCENARIO("execute the BLS instruction", "[instruction]")
 {
   using namespace yarisc::arch::assembly;
 
-  GIVEN("a test machine with a BLS to absolute address `0x1ff0` instruction")
+  GIVEN("a test machine with a BLS to relative address `0x1ff0` instruction")
   {
     yarisc::test::machine current{yarisc::arch::assemble<opcode::cond_branch>(ls, immediate), 0x1ff0};
 
@@ -762,11 +762,11 @@ SCENARIO("execute the BLS instruction", "[instruction]")
     WHEN("the instruction is executed")
     {
       yarisc::test::machine expected = current;
-      expected.set_ip(0x1ff0);
+      expected.set_ip(0x201e);
 
       REQUIRE(current.execute_instruction());
 
-      THEN("the instruction pointer shall have the value `0x1ff0`")
+      THEN("the instruction pointer shall have the value `0x201e`")
       {
         CHECK(current == expected);
       }
@@ -779,11 +779,11 @@ SCENARIO("execute the BLS instruction", "[instruction]")
       AND_WHEN("the instruction is executed")
       {
         yarisc::test::machine expected = current;
-        expected.set_ip(0x1ff0);
+        expected.set_ip(0x201e);
 
         REQUIRE(current.execute_instruction());
 
-        THEN("the instruction pointer shall have the value `0x1ff0`")
+        THEN("the instruction pointer shall have the value `0x201e`")
         {
           CHECK(current == expected);
         }
@@ -815,11 +815,11 @@ SCENARIO("execute the BLS instruction", "[instruction]")
       AND_WHEN("the instruction is executed")
       {
         yarisc::test::machine expected = current;
-        expected.set_ip(0x1ff0);
+        expected.set_ip(0x201e);
 
         REQUIRE(current.execute_instruction());
 
-        THEN("the instruction pointer shall have the value `0x1ff0`")
+        THEN("the instruction pointer shall have the value `0x201e`")
         {
           CHECK(current == expected);
         }
@@ -833,11 +833,11 @@ SCENARIO("execute the BLS instruction", "[instruction]")
       AND_WHEN("the instruction is executed")
       {
         yarisc::test::machine expected = current;
-        expected.set_ip(0x1ff0);
+        expected.set_ip(0x201e);
 
         REQUIRE(current.execute_instruction());
 
-        THEN("the instruction pointer shall have the value `0x1ff0`")
+        THEN("the instruction pointer shall have the value `0x201e`")
         {
           CHECK(current == expected);
         }
@@ -850,7 +850,7 @@ SCENARIO("execute the BNE instruction", "[instruction]")
 {
   using namespace yarisc::arch::assembly;
 
-  GIVEN("a test machine with a BNE to absolute address `0x1ff0` instruction")
+  GIVEN("a test machine with a BNE to relative address `0x1ff0` instruction")
   {
     yarisc::test::machine current{yarisc::arch::assemble<opcode::cond_branch>(ne, immediate), 0x1ff0};
 
@@ -867,11 +867,11 @@ SCENARIO("execute the BNE instruction", "[instruction]")
     WHEN("the instruction is executed")
     {
       yarisc::test::machine expected = current;
-      expected.set_ip(0x1ff0);
+      expected.set_ip(0x201e);
 
       REQUIRE(current.execute_instruction());
 
-      THEN("the instruction pointer shall have the value `0x1ff0`")
+      THEN("the instruction pointer shall have the value `0x201e`")
       {
         CHECK(current == expected);
       }
@@ -902,11 +902,11 @@ SCENARIO("execute the BNE instruction", "[instruction]")
       AND_WHEN("the instruction is executed")
       {
         yarisc::test::machine expected = current;
-        expected.set_ip(0x1ff0);
+        expected.set_ip(0x201e);
 
         REQUIRE(current.execute_instruction());
 
-        THEN("the instruction pointer shall have the value `0x1ff0`")
+        THEN("the instruction pointer shall have the value `0x201e`")
         {
           CHECK(current == expected);
         }
@@ -937,7 +937,7 @@ SCENARIO("execute the BGE instruction", "[instruction]")
 {
   using namespace yarisc::arch::assembly;
 
-  GIVEN("a test machine with a BGE to absolute address `0x1ff0` instruction")
+  GIVEN("a test machine with a BGE to relative address `0x1ff0` instruction")
   {
     yarisc::test::machine current{yarisc::arch::assemble<opcode::cond_branch>(ge, immediate), 0x1ff0};
 
@@ -954,11 +954,11 @@ SCENARIO("execute the BGE instruction", "[instruction]")
     WHEN("the instruction is executed")
     {
       yarisc::test::machine expected = current;
-      expected.set_ip(0x1ff0);
+      expected.set_ip(0x201e);
 
       REQUIRE(current.execute_instruction());
 
-      THEN("the instruction pointer shall have the value `0x1ff0`")
+      THEN("the instruction pointer shall have the value `0x201e`")
       {
         CHECK(current == expected);
       }
@@ -1007,11 +1007,11 @@ SCENARIO("execute the BGE instruction", "[instruction]")
       AND_WHEN("the instruction is executed")
       {
         yarisc::test::machine expected = current;
-        expected.set_ip(0x1ff0);
+        expected.set_ip(0x201e);
 
         REQUIRE(current.execute_instruction());
 
-        THEN("the instruction pointer shall have the value `0x1ff0`")
+        THEN("the instruction pointer shall have the value `0x201e`")
         {
           CHECK(current == expected);
         }
@@ -1025,11 +1025,11 @@ SCENARIO("execute the BGE instruction", "[instruction]")
       AND_WHEN("the instruction is executed")
       {
         yarisc::test::machine expected = current;
-        expected.set_ip(0x1ff0);
+        expected.set_ip(0x201e);
 
         REQUIRE(current.execute_instruction());
 
-        THEN("the instruction pointer shall have the value `0x1ff0`")
+        THEN("the instruction pointer shall have the value `0x201e`")
         {
           CHECK(current == expected);
         }
@@ -1042,7 +1042,7 @@ SCENARIO("execute the BGT instruction", "[instruction]")
 {
   using namespace yarisc::arch::assembly;
 
-  GIVEN("a test machine with a BGT to absolute address `0x1ff0` instruction")
+  GIVEN("a test machine with a BGT to relative address `0x1ff0` instruction")
   {
     yarisc::test::machine current{yarisc::arch::assemble<opcode::cond_branch>(gt, immediate), 0x1ff0};
 
@@ -1059,11 +1059,11 @@ SCENARIO("execute the BGT instruction", "[instruction]")
     WHEN("the instruction is executed")
     {
       yarisc::test::machine expected = current;
-      expected.set_ip(0x1ff0);
+      expected.set_ip(0x201e);
 
       REQUIRE(current.execute_instruction());
 
-      THEN("the instruction pointer shall have the value `0x1ff0`")
+      THEN("the instruction pointer shall have the value `0x201e`")
       {
         CHECK(current == expected);
       }
@@ -1130,11 +1130,11 @@ SCENARIO("execute the BGT instruction", "[instruction]")
       AND_WHEN("the instruction is executed")
       {
         yarisc::test::machine expected = current;
-        expected.set_ip(0x1ff0);
+        expected.set_ip(0x201e);
 
         REQUIRE(current.execute_instruction());
 
-        THEN("the instruction pointer shall have the value `0x1ff0`")
+        THEN("the instruction pointer shall have the value `0x201e`")
         {
           CHECK(current == expected);
         }
@@ -1165,7 +1165,7 @@ SCENARIO("execute the BHS instruction", "[instruction]")
 {
   using namespace yarisc::arch::assembly;
 
-  GIVEN("a test machine with a BHS to absolute address `0x1ff0` instruction")
+  GIVEN("a test machine with a BHS to relative address `0x1ff0` instruction")
   {
     yarisc::test::machine current{yarisc::arch::assemble<opcode::cond_branch>(hs, immediate), 0x1ff0};
 
@@ -1217,11 +1217,11 @@ SCENARIO("execute the BHS instruction", "[instruction]")
       AND_WHEN("the instruction is executed")
       {
         yarisc::test::machine expected = current;
-        expected.set_ip(0x1ff0);
+        expected.set_ip(0x201e);
 
         REQUIRE(current.execute_instruction());
 
-        THEN("the instruction pointer shall have the value `0x1ff0`")
+        THEN("the instruction pointer shall have the value `0x201e`")
         {
           CHECK(current == expected);
         }
@@ -1235,11 +1235,11 @@ SCENARIO("execute the BHS instruction", "[instruction]")
       AND_WHEN("the instruction is executed")
       {
         yarisc::test::machine expected = current;
-        expected.set_ip(0x1ff0);
+        expected.set_ip(0x201e);
 
         REQUIRE(current.execute_instruction());
 
-        THEN("the instruction pointer shall have the value `0x1ff0`")
+        THEN("the instruction pointer shall have the value `0x201e`")
         {
           CHECK(current == expected);
         }
@@ -1253,11 +1253,11 @@ SCENARIO("execute the BHS instruction", "[instruction]")
       AND_WHEN("the instruction is executed")
       {
         yarisc::test::machine expected = current;
-        expected.set_ip(0x1ff0);
+        expected.set_ip(0x201e);
 
         REQUIRE(current.execute_instruction());
 
-        THEN("the instruction pointer shall have the value `0x1ff0`")
+        THEN("the instruction pointer shall have the value `0x201e`")
         {
           CHECK(current == expected);
         }
@@ -1270,7 +1270,7 @@ SCENARIO("execute the BHI instruction", "[instruction]")
 {
   using namespace yarisc::arch::assembly;
 
-  GIVEN("a test machine with a BHI to absolute address `0x1ff0` instruction")
+  GIVEN("a test machine with a BHI to relative address `0x1ff0` instruction")
   {
     yarisc::test::machine current{yarisc::arch::assemble<opcode::cond_branch>(hi, immediate), 0x1ff0};
 
@@ -1322,11 +1322,11 @@ SCENARIO("execute the BHI instruction", "[instruction]")
       AND_WHEN("the instruction is executed")
       {
         yarisc::test::machine expected = current;
-        expected.set_ip(0x1ff0);
+        expected.set_ip(0x201e);
 
         REQUIRE(current.execute_instruction());
 
-        THEN("the instruction pointer shall have the value `0x1ff0`")
+        THEN("the instruction pointer shall have the value `0x201e`")
         {
           CHECK(current == expected);
         }
