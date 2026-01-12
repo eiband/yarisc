@@ -263,22 +263,20 @@ index bfcf5dab4772..762483e322ee 100644
  #include "ELFRelocs/Xtensa.def"
 diff --git a/llvm/include/llvm/BinaryFormat/ELFRelocs/YaRISC.def b/llvm/include/llvm/BinaryFormat/ELFRelocs/YaRISC.def
 new file mode 100644
-index 000000000000..cb4cf1a3524e
+index 000000000000..b11a91fda16c
 --- /dev/null
 +++ b/llvm/include/llvm/BinaryFormat/ELFRelocs/YaRISC.def
-@@ -0,0 +1,12 @@
+@@ -0,0 +1,10 @@
 +
 +#ifndef ELF_RELOC
 +#error "ELF_RELOC must be defined"
 +#endif
 +
-+// TODO: YaRISC adapt to actual relocations
 +ELF_RELOC(R_YARISC_NONE,         0)
-+ELF_RELOC(R_YARISC_8,            1)
-+ELF_RELOC(R_YARISC_16,           2)
-+ELF_RELOC(R_YARISC_DISP8,        3)
-+ELF_RELOC(R_YARISC_DISP16,       4)
-+ELF_RELOC(R_YARISC_PCREL32,      5)
++ELF_RELOC(R_YARISC_16,           1)
++ELF_RELOC(R_YARISC_PCREL16,      2)
++ELF_RELOC(R_YARISC_PCREL5_S1,    3)
++ELF_RELOC(R_YARISC_PCREL9_S1,    4)
 diff --git a/llvm/include/llvm/TargetParser/Triple.h b/llvm/include/llvm/TargetParser/Triple.h
 index e8aa43a2337c..2a06ca2cb5ba 100644
 --- a/llvm/include/llvm/TargetParser/Triple.h
@@ -757,10 +755,10 @@ index 000000000000..a6f0c4fec914
 +  )
 diff --git a/llvm/lib/Target/YaRISC/MCTargetDesc/YaRISCAsmBackend.cpp b/llvm/lib/Target/YaRISC/MCTargetDesc/YaRISCAsmBackend.cpp
 new file mode 100644
-index 000000000000..c335912ffd96
+index 000000000000..ebeba8a72538
 --- /dev/null
 +++ b/llvm/lib/Target/YaRISC/MCTargetDesc/YaRISCAsmBackend.cpp
-@@ -0,0 +1,145 @@
+@@ -0,0 +1,185 @@
 +//===-- YaRISCAsmBackend.cpp - YaRISC Assembler Backend -------------------===//
 +//
 +// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
@@ -773,6 +771,7 @@ index 000000000000..c335912ffd96
 +#include "MCTargetDesc/YaRISCMCTargetDesc.h"
 +#include "llvm/ADT/StringSwitch.h"
 +#include "llvm/MC/MCAsmBackend.h"
++#include "llvm/MC/MCContext.h"
 +#include "llvm/MC/MCELFObjectWriter.h"
 +#include "llvm/MC/MCExpr.h"
 +#include "llvm/MC/MCObjectWriter.h"
@@ -780,6 +779,7 @@ index 000000000000..c335912ffd96
 +#include "llvm/MC/MCValue.h"
 +#include "llvm/MC/TargetRegistry.h"
 +#include "llvm/Support/EndianStream.h"
++#include "llvm/Support/MathExtras.h"
 +
 +using namespace llvm;
 +
@@ -827,6 +827,39 @@ index 000000000000..c335912ffd96
 +};
 +} // namespace
 +
++static void checkFixupValue(SMLoc Loc, unsigned N, uint64_t Value,
++                            MCContext &Ctx) {
++  if (!isIntN(N, Value))
++    Ctx.reportError(Loc, "fixup value out of range [" + Twine(minIntN(N)) +
++                             ", " + Twine(maxIntN(N)) + "]");
++  if (Value % 2)
++    Ctx.reportError(Loc, "fixup value must be 2-byte aligned");
++}
++
++static uint64_t adjustFixupValue(const MCFixup &Fixup,
++                                 const MCFixupKindInfo &FKI, uint64_t Value,
++                                 MCContext &Ctx) {
++  switch (Fixup.getKind()) {
++  case YaRISC::fixup_yarisc_pcrel16:
++    // The branch address is relative to the next instruction.
++    Value -= 4;
++    checkFixupValue(Fixup.getLoc(), FKI.TargetSize, Value, Ctx);
++    break;
++  case YaRISC::fixup_yarisc_pcrel5_s1:
++  case YaRISC::fixup_yarisc_pcrel9_s1:
++    // The branch address is relative to the next instruction.
++    Value -= 2;
++    checkFixupValue(Fixup.getLoc(), FKI.TargetSize + 1, Value, Ctx);
++    // Apply S1 shift for scaled addresses.
++    Value >>= 1;
++    break;
++  default:
++    break;
++  }
++
++  return Value;
++}
++
 +std::optional<MCFixupKind>
 +YaRISCAsmBackend::getFixupKind(StringRef Name) const {
 +  unsigned Type;
@@ -835,7 +868,6 @@ index 000000000000..c335912ffd96
 +#include "llvm/BinaryFormat/ELFRelocs/YaRISC.def"
 +#undef ELF_RELOC
 +             .Case("BFD_RELOC_NONE", ELF::R_YARISC_NONE)
-+             .Case("BFD_RELOC_8", ELF::R_YARISC_8)
 +             .Case("BFD_RELOC_16", ELF::R_YARISC_16)
 +             .Default(-1u);
 +  if (Type == -1u)
@@ -851,36 +883,26 @@ index 000000000000..c335912ffd96
 +    // YaRISCFixupKinds.h.
 +    //
 +    // name                        offset  bits    flags
-+    { "fixup_yarisc_call16",       0,      16,     0 },
-+    { "fixup_yarisc_pcrel32",      0,      32,     0 },
++    { "fixup_yarisc_16",           16,     16,     0 },
++    { "fixup_yarisc_pcrel16",      16,     16,     0 },
++    { "fixup_yarisc_pcrel5_s1",    10,     5,      0 },
++    { "fixup_yarisc_pcrel9_s1",    6,      9,      0 },
 +  };
 +  // clang-format on
++  static_assert((std::size(Infos)) == YaRISC::NumTargetFixupKinds,
++                "Not all fixup kinds added to Infos array");
 +
-+  if (!mc::isRelocation(Kind)) {
-+    if (Kind < FirstTargetFixupKind)
-+      return MCAsmBackend::getFixupKindInfo(Kind);
++  // Fixup kinds from raw relocation types and .reloc directives force
++  // relocations and do not use these fields.
++  if (mc::isRelocation(Kind))
++    return {};
 +
-+    assert(unsigned(Kind - FirstTargetFixupKind) <
-+               YaRISC::NumTargetFixupKinds &&
-+           "Invalid kind!");
-+    return Infos[Kind - FirstTargetFixupKind];
-+  }
++  if (Kind < FirstTargetFixupKind)
++    return MCAsmBackend::getFixupKindInfo(Kind);
 +
-+  MCFixupKindInfo Info{};
-+  switch (uint16_t(Kind)) {
-+  case ELF::R_YARISC_8:
-+  case ELF::R_YARISC_DISP8:
-+    Info = {"", 0, 8, 0};
-+    break;
-+  case ELF::R_YARISC_16:
-+  case ELF::R_YARISC_DISP16:
-+    Info = {"", 10, 16, 0};
-+    break;
-+  case ELF::R_YARISC_PCREL32:
-+    Info = {"", 0, 32, 0};
-+    break;
-+  }
-+  return Info;
++  assert(unsigned(Kind - FirstTargetFixupKind) < YaRISC::NumTargetFixupKinds &&
++         "Invalid kind!");
++  return Infos[Kind - FirstTargetFixupKind];
 +}
 +
 +void YaRISCAsmBackend::applyFixup(const MCFragment &F, const MCFixup &Fixup,
@@ -893,8 +915,24 @@ index 000000000000..c335912ffd96
 +  if (!Value)
 +    return;
 +
-+  MCFixupKind Kind = Fixup.getKind();
-+  unsigned NumBytes = (getFixupKindInfo(Kind).TargetSize + 7) / 8;
++  const MCFixupKindInfo &FKI = getFixupKindInfo(Fixup.getKind());
++  unsigned TargetOffset = FKI.TargetOffset;
++  unsigned TargetSize = FKI.TargetSize;
++
++  if (TargetSize == 0)
++    return;
++
++  // Apply target-specific value adjustments.
++  Value = adjustFixupValue(Fixup, FKI, Value, getContext());
++
++  // Mask the value to the number of bits.
++  uint64_t Mask = (TargetSize == 64) ? ~0ULL : ((1ULL << TargetSize) - 1);
++  Value &= Mask;
++
++  // Shift into position.
++  Value <<= TargetOffset;
++
++  unsigned NumBytes = (TargetOffset + TargetSize + 7) / 8;
 +
 +  for (unsigned I = 0; I != NumBytes; ++I)
 +    Data[I] |= uint8_t((Value >> (I * 8)) & 0xff);
@@ -908,10 +946,10 @@ index 000000000000..c335912ffd96
 +}
 diff --git a/llvm/lib/Target/YaRISC/MCTargetDesc/YaRISCELFObjectWriter.cpp b/llvm/lib/Target/YaRISC/MCTargetDesc/YaRISCELFObjectWriter.cpp
 new file mode 100644
-index 000000000000..453988ecb340
+index 000000000000..9f3a82d57957
 --- /dev/null
 +++ b/llvm/lib/Target/YaRISC/MCTargetDesc/YaRISCELFObjectWriter.cpp
-@@ -0,0 +1,83 @@
+@@ -0,0 +1,86 @@
 +//===-- YaRISCELFObjectWriter.cpp - YaRISC ELF Writer ---------------------===//
 +//
 +// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
@@ -920,6 +958,7 @@ index 000000000000..453988ecb340
 +//
 +//===----------------------------------------------------------------------===//
 +
++#include "MCTargetDesc/YaRISCFixupKinds.h"
 +#include "MCTargetDesc/YaRISCMCTargetDesc.h"
 +#include "llvm/MC/MCContext.h"
 +#include "llvm/MC/MCELFObjectWriter.h"
@@ -951,29 +990,32 @@ index 000000000000..453988ecb340
 +                                             const MCValue &Target,
 +                                             bool IsPCRel) const {
 +  auto Kind = Fixup.getKind();
++  auto Spec = Target.getSpecifier();
++
 +  if (mc::isRelocation(Kind))
 +    return Kind;
 +
-+  if (const auto *SExpr = dyn_cast<MCSpecifierExpr>(Fixup.getValue())) {
-+    switch (SExpr->getSpecifier()) {
-+    case ELF::R_YARISC_8:
-+    case ELF::R_YARISC_16:
-+    case ELF::R_YARISC_DISP8:
-+    case ELF::R_YARISC_DISP16:
-+      return SExpr->getSpecifier();
-+    default:
-+      break;
-+    }
++  switch (Spec) {
++  case ELF::R_YARISC_16:
++  case ELF::R_YARISC_PCREL16:
++  case ELF::R_YARISC_PCREL5_S1:
++  case ELF::R_YARISC_PCREL9_S1:
++    return Spec;
++  default:
++    break;
 +  }
 +
 +  if (IsPCRel) {
 +    switch (Kind) {
 +    default:
 +      llvm_unreachable("Unimplemented fixup -> relocation");
-+    case FK_Data_1:
-+      return ELF::R_YARISC_DISP8;
 +    case FK_Data_2:
-+      return ELF::R_YARISC_DISP16;
++    case YaRISC::fixup_yarisc_pcrel16:
++      return ELF::R_YARISC_PCREL16;
++    case YaRISC::fixup_yarisc_pcrel5_s1:
++      return ELF::R_YARISC_PCREL5_S1;
++    case YaRISC::fixup_yarisc_pcrel9_s1:
++      return ELF::R_YARISC_PCREL9_S1;
 +    }
 +  }
 +
@@ -982,9 +1024,8 @@ index 000000000000..453988ecb340
 +    llvm_unreachable("Unimplemented fixup -> relocation");
 +  case FK_NONE:
 +    return ELF::R_YARISC_NONE;
-+  case FK_Data_1:
-+    return ELF::R_YARISC_8;
 +  case FK_Data_2:
++  case YaRISC::fixup_yarisc_16:
 +    return ELF::R_YARISC_16;
 +  }
 +
@@ -997,10 +1038,10 @@ index 000000000000..453988ecb340
 +}
 diff --git a/llvm/lib/Target/YaRISC/MCTargetDesc/YaRISCFixupKinds.h b/llvm/lib/Target/YaRISC/MCTargetDesc/YaRISCFixupKinds.h
 new file mode 100644
-index 000000000000..cfe52a6d516a
+index 000000000000..ca496034f245
 --- /dev/null
 +++ b/llvm/lib/Target/YaRISC/MCTargetDesc/YaRISCFixupKinds.h
-@@ -0,0 +1,27 @@
+@@ -0,0 +1,29 @@
 +//===-- YaRISCFixupKinds.h - YaRISC Specific Fixup Entries ------*- C++ -*-===//
 +//
 +// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
@@ -1017,8 +1058,10 @@ index 000000000000..cfe52a6d516a
 +namespace llvm {
 +namespace YaRISC {
 +enum Fixups {
-+  fixup_yarisc_call16 = FirstTargetFixupKind,
-+  fixup_yarisc_pcrel32, // for DWARF
++  fixup_yarisc_16 = FirstTargetFixupKind,
++  fixup_yarisc_pcrel16,   // branch offset
++  fixup_yarisc_pcrel5_s1, // short conditional branch offset
++  fixup_yarisc_pcrel9_s1, // short unconditional branch offset
 +
 +  // Marker
 +  LastTargetFixupKind,
@@ -1030,10 +1073,10 @@ index 000000000000..cfe52a6d516a
 +#endif
 diff --git a/llvm/lib/Target/YaRISC/MCTargetDesc/YaRISCInstPrinter.cpp b/llvm/lib/Target/YaRISC/MCTargetDesc/YaRISCInstPrinter.cpp
 new file mode 100644
-index 000000000000..3fc49aec2851
+index 000000000000..d7d25e21ed53
 --- /dev/null
 +++ b/llvm/lib/Target/YaRISC/MCTargetDesc/YaRISCInstPrinter.cpp
-@@ -0,0 +1,57 @@
+@@ -0,0 +1,68 @@
 +//===-- YaRISCInstPrinter.cpp - Convert YaRISC MCInst to assembly syntax ---==//
 +//
 +// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
@@ -1091,12 +1134,23 @@ index 000000000000..3fc49aec2851
 +  assert(MO.isExpr() && "Unknown operand kind in printOperand");
 +  MAI.printExpr(O, *MO.getExpr());
 +}
++
++void YaRISCInstPrinter::printCondCode(const MCInst *MI, unsigned OpNum,
++                                      const MCSubtargetInfo &STI,
++                                      raw_ostream &O) {
++  uint8_t Imm = MI->getOperand(OpNum).getImm();
++  auto Info = YaRISCCC::lookupMnemonicByEncoding(Imm);
++  if (Info)
++    O << Info->Mnemonic;
++  else
++    llvm_unreachable("Invalid condition code argument!");
++}
 diff --git a/llvm/lib/Target/YaRISC/MCTargetDesc/YaRISCInstPrinter.h b/llvm/lib/Target/YaRISC/MCTargetDesc/YaRISCInstPrinter.h
 new file mode 100644
-index 000000000000..68e429e62609
+index 000000000000..5f3ab023cf69
 --- /dev/null
 +++ b/llvm/lib/Target/YaRISC/MCTargetDesc/YaRISCInstPrinter.h
-@@ -0,0 +1,46 @@
+@@ -0,0 +1,54 @@
 +//===-- YaRISCInstPrinter.h - Convert YaRISC MCInst to assembly syntax ----===//
 +//
 +// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
@@ -1127,7 +1181,7 @@ index 000000000000..68e429e62609
 +  void printInst(const MCInst *MI, uint64_t Address, StringRef Annot,
 +                 const MCSubtargetInfo &STI, raw_ostream &O) override;
 +
-+  // Autogenerated by tblgen.
++  // Autogenerated by tablegen.
 +  std::pair<const char *, uint64_t>
 +  getMnemonic(const MCInst &MI) const override;
 +  void printInstruction(const MCInst *MI, uint64_t Address,
@@ -1138,6 +1192,14 @@ index 000000000000..68e429e62609
 +
 +  void printOperand(const MCInst *MI, int opNum, const MCSubtargetInfo &STI,
 +                    raw_ostream &OS);
++  void printOperand(const MCInst *MI, uint64_t /*Address*/, unsigned OpNum,
++                    const MCSubtargetInfo &STI, raw_ostream &O) {
++    printOperand(MI, OpNum, STI, O);
++  }
++
++protected:
++  void printCondCode(const MCInst *MI, unsigned OpNum,
++                     const MCSubtargetInfo &STI, raw_ostream &O);
 +};
 +
 +} // namespace llvm
@@ -1145,10 +1207,10 @@ index 000000000000..68e429e62609
 +#endif // LLVM_LIB_TARGET_YARISC_MCTARGETDESC_YARISCINSTPRINTER_H
 diff --git a/llvm/lib/Target/YaRISC/MCTargetDesc/YaRISCMCAsmInfo.cpp b/llvm/lib/Target/YaRISC/MCTargetDesc/YaRISCMCAsmInfo.cpp
 new file mode 100644
-index 000000000000..33feecb0613d
+index 000000000000..5a514557b909
 --- /dev/null
 +++ b/llvm/lib/Target/YaRISC/MCTargetDesc/YaRISCMCAsmInfo.cpp
-@@ -0,0 +1,68 @@
+@@ -0,0 +1,66 @@
 +//===- YaRISCMCAsmInfo.cpp - YaRISC asm properties ------------------------===//
 +//
 +// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
@@ -1181,11 +1243,12 @@ index 000000000000..33feecb0613d
 +
 +void YaRISCELFMCAsmInfo::printSpecifierExpr(raw_ostream &OS,
 +                                            const MCSpecifierExpr &Expr) const {
-+  StringRef S = YaRISC::getSpecifierName(Expr.getSpecifier());
-+  if (!S.empty())
-+    OS << '%' << S << '(';
++  auto S = Expr.getSpecifier();
++  bool HasSpecifier = S != 0 && S != ELF::R_YARISC_16;
++  if (HasSpecifier)
++    OS << '%' << YaRISC::getSpecifierName(S) << '(';
 +  printExpr(OS, *Expr.getSubExpr());
-+  if (!S.empty())
++  if (HasSpecifier)
 +    OS << ')';
 +}
 +
@@ -1195,26 +1258,23 @@ index 000000000000..33feecb0613d
 +    llvm_unreachable("Unhandled YaRISC specifier");
 +  case 0:
 +    return {};
-+  case ELF::R_YARISC_8:
-+    return "8";
 +  case ELF::R_YARISC_16:
 +    return "16";
-+  case ELF::R_YARISC_DISP8:
-+    return "disp8";
-+  case ELF::R_YARISC_DISP16:
-+    return "disp16";
-+  case ELF::R_YARISC_PCREL32:
-+    return "pcrel32";
++  case ELF::R_YARISC_PCREL16:
++    return "pcrel16";
++  case ELF::R_YARISC_PCREL5_S1:
++    return "pcrel5_s1";
++  case ELF::R_YARISC_PCREL9_S1:
++    return "pcrel9_s1";
 +  }
 +}
 +
 +uint16_t YaRISC::parseSpecifier(StringRef name) {
 +  return StringSwitch<uint16_t>(name)
-+      .Case("8", ELF::R_YARISC_8)
 +      .Case("16", ELF::R_YARISC_16)
-+      .Case("disp8", ELF::R_YARISC_DISP8)
-+      .Case("disp16", ELF::R_YARISC_DISP16)
-+      .Case("pcrel32", ELF::R_YARISC_PCREL32)
++      .Case("pcrel16", ELF::R_YARISC_PCREL16)
++      .Case("pcrel5_s1", ELF::R_YARISC_PCREL5_S1)
++      .Case("pcrel9_s1", ELF::R_YARISC_PCREL9_S1)
 +      .Default(0);
 +}
 diff --git a/llvm/lib/Target/YaRISC/MCTargetDesc/YaRISCMCAsmInfo.h b/llvm/lib/Target/YaRISC/MCTargetDesc/YaRISCMCAsmInfo.h
@@ -1264,10 +1324,10 @@ index 000000000000..dde0d03ac46f
 +#endif // LLVM_LIB_TARGET_YARISC_MCTARGETDESC_YARISCMCASMINFO_H
 diff --git a/llvm/lib/Target/YaRISC/MCTargetDesc/YaRISCMCCodeEmitter.cpp b/llvm/lib/Target/YaRISC/MCTargetDesc/YaRISCMCCodeEmitter.cpp
 new file mode 100644
-index 000000000000..50435c74c3c2
+index 000000000000..b9bcde8a858f
 --- /dev/null
 +++ b/llvm/lib/Target/YaRISC/MCTargetDesc/YaRISCMCCodeEmitter.cpp
-@@ -0,0 +1,127 @@
+@@ -0,0 +1,200 @@
 +//===-- YaRISCMCCodeEmitter.cpp - Convert YaRISC code to machine code -----===//
 +//
 +// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
@@ -1280,6 +1340,7 @@ index 000000000000..50435c74c3c2
 +//
 +//===----------------------------------------------------------------------===//
 +
++#include "YaRISCFixupKinds.h"
 +#include "YaRISCMCTargetDesc.h"
 +#include "llvm/ADT/SmallVector.h"
 +#include "llvm/ADT/Statistic.h"
@@ -1297,6 +1358,7 @@ index 000000000000..50435c74c3c2
 +#include "llvm/MC/MCSymbol.h"
 +#include "llvm/Support/Casting.h"
 +#include "llvm/Support/EndianStream.h"
++#include "llvm/Support/MathExtras.h"
 +#include <cassert>
 +#include <cstdint>
 +
@@ -1335,8 +1397,33 @@ index 000000000000..50435c74c3c2
 +  unsigned getMachineOpValue(const MCInst &MI, const MCOperand &MO,
 +                             SmallVectorImpl<MCFixup> &Fixups,
 +                             const MCSubtargetInfo &STI) const;
++
++  unsigned getImmOpValue(const MCInst &MI, unsigned OpNo,
++                         SmallVectorImpl<MCFixup> &Fixups,
++                         const MCSubtargetInfo &STI) const;
++  template <int N, int S = 0>
++  unsigned getBranchTargetOpValue(const MCInst &MI, unsigned OpNo,
++                                  SmallVectorImpl<MCFixup> &Fixups,
++                                  const MCSubtargetInfo &STI) const;
 +};
 +} // namespace
++
++static void addFixup(SmallVectorImpl<MCFixup> &Fixups, uint32_t Offset,
++                     const MCExpr *Value, uint16_t Kind) {
++  bool PCRel = false;
++  switch (Kind) {
++  default:
++    llvm_unreachable("unknown fixup kind");
++  case YaRISC::fixup_yarisc_16:
++    break;
++  case YaRISC::fixup_yarisc_pcrel16:
++  case YaRISC::fixup_yarisc_pcrel5_s1:
++  case YaRISC::fixup_yarisc_pcrel9_s1:
++    PCRel = true;
++    break;
++  }
++  Fixups.push_back(MCFixup::create(Offset, Value, Kind, PCRel));
++}
 +
 +void YaRISCMCCodeEmitter::encodeInstruction(const MCInst &MI,
 +                                            SmallVectorImpl<char> &CB,
@@ -1372,21 +1459,67 @@ index 000000000000..50435c74c3c2
 +  if (MO.isImm())
 +    return MO.getImm();
 +
-+  assert(MO.isExpr());
-+  const MCExpr *Expr = MO.getExpr();
-+  if (auto *SExpr = dyn_cast<MCSpecifierExpr>(Expr)) {
-+    uint16_t Kind = SExpr->getSpecifier();
-+    bool PCRel = (Kind == ELF::R_YARISC_PCREL32);
-+    Fixups.push_back(MCFixup::create(0, Expr, Kind, PCRel));
-+    return 0;
-+  }
-+
-+  int64_t Res;
-+  if (Expr->evaluateAsAbsolute(Res))
-+    return Res;
-+
 +  llvm_unreachable("Unhandled expression!");
 +  return 0;
++}
++
++unsigned YaRISCMCCodeEmitter::getImmOpValue(const MCInst &MI, unsigned OpNo,
++                                            SmallVectorImpl<MCFixup> &Fixups,
++                                            const MCSubtargetInfo &STI) const {
++  const MCOperand &MO = MI.getOperand(OpNo);
++
++  if (MO.isImm())
++    return MO.getImm();
++
++  assert(MO.isExpr() && "getImmOpValue expects only expressions or immediates");
++  const MCExpr *Expr = MO.getExpr();
++  MCExpr::ExprKind Kind = Expr->getKind();
++
++  unsigned FixupKind = YaRISC::LastTargetFixupKind;
++  if (Kind == MCExpr::Specifier) {
++    const auto *RVExpr = cast<MCSpecifierExpr>(Expr);
++    FixupKind = RVExpr->getSpecifier();
++    switch (RVExpr->getSpecifier()) {
++    default:
++      assert(FixupKind && FixupKind < FirstTargetFixupKind &&
++             "invalid specifier");
++      break;
++    case ELF::R_YARISC_16:
++      FixupKind = YaRISC::fixup_yarisc_16;
++      break;
++    case ELF::R_YARISC_PCREL16:
++      FixupKind = YaRISC::fixup_yarisc_pcrel16;
++      break;
++    case ELF::R_YARISC_PCREL5_S1:
++      FixupKind = YaRISC::fixup_yarisc_pcrel5_s1;
++      break;
++    case ELF::R_YARISC_PCREL9_S1:
++      FixupKind = YaRISC::fixup_yarisc_pcrel9_s1;
++      break;
++    }
++  } else if (Kind == MCExpr::SymbolRef || Kind == MCExpr::Binary) {
++    FixupKind = YaRISC::fixup_yarisc_16;
++  }
++
++  assert(FixupKind != YaRISC::LastTargetFixupKind && "Unhandled expression!");
++  addFixup(Fixups, 0, Expr, FixupKind);
++  return 0;
++}
++
++template <int N, int S>
++unsigned
++YaRISCMCCodeEmitter::getBranchTargetOpValue(const MCInst &MI, unsigned OpNo,
++                                            SmallVectorImpl<MCFixup> &Fixups,
++                                            const MCSubtargetInfo &STI) const {
++  const MCOperand &MO = MI.getOperand(OpNo);
++
++  if (MO.isImm()) {
++    uint64_t Res = MO.getImm();
++    assert((isShiftedInt<N, S>(Res)) && "Immediate too large or not aligned");
++    return Res >> S;
++  }
++
++  return getImmOpValue(MI, OpNo, Fixups, STI);
 +}
 +
 +#include "YaRISCGenMCCodeEmitter.inc"
@@ -1397,10 +1530,10 @@ index 000000000000..50435c74c3c2
 +}
 diff --git a/llvm/lib/Target/YaRISC/MCTargetDesc/YaRISCMCTargetDesc.cpp b/llvm/lib/Target/YaRISC/MCTargetDesc/YaRISCMCTargetDesc.cpp
 new file mode 100644
-index 000000000000..2e892787d39f
+index 000000000000..ae8f5b3b1b80
 --- /dev/null
 +++ b/llvm/lib/Target/YaRISC/MCTargetDesc/YaRISCMCTargetDesc.cpp
-@@ -0,0 +1,126 @@
+@@ -0,0 +1,134 @@
 +//===-- YaRISCMCTargetDesc.cpp - YaRISC Target Descriptions ---------------===//
 +//
 +// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
@@ -1415,6 +1548,7 @@ index 000000000000..2e892787d39f
 +
 +#include "YaRISCMCTargetDesc.h"
 +#include "TargetInfo/YaRISCTargetInfo.h"
++#include "YaRISC.h"
 +#include "YaRISCInstPrinter.h"
 +#include "YaRISCMCAsmInfo.h"
 +#include "YaRISCTargetStreamer.h"
@@ -1436,6 +1570,13 @@ index 000000000000..2e892787d39f
 +
 +#define GET_REGINFO_MC_DESC
 +#include "YaRISCGenRegisterInfo.inc"
++
++namespace llvm {
++namespace YaRISCCC {
++#define GET_CC_VALTable_IMPL
++#include "YaRISCGenSearchableTables.inc"
++} // namespace YaRISCCC
++} // namespace llvm
 +
 +static MCAsmInfo *createYaRISCMCAsmInfo(const MCRegisterInfo &MRI,
 +                                        const Triple &TT,
@@ -1529,10 +1670,10 @@ index 000000000000..2e892787d39f
 +}
 diff --git a/llvm/lib/Target/YaRISC/MCTargetDesc/YaRISCMCTargetDesc.h b/llvm/lib/Target/YaRISC/MCTargetDesc/YaRISCMCTargetDesc.h
 new file mode 100644
-index 000000000000..2e88315b2fdd
+index 000000000000..3128a533af0a
 --- /dev/null
 +++ b/llvm/lib/Target/YaRISC/MCTargetDesc/YaRISCMCTargetDesc.h
-@@ -0,0 +1,59 @@
+@@ -0,0 +1,68 @@
 +//===-- YaRISCMCTargetDesc.h - YaRISC Target Descriptions -------*- C++ -*-===//
 +//
 +// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
@@ -1565,6 +1706,16 @@ index 000000000000..2e88315b2fdd
 +class Target;
 +class Triple;
 +
++namespace YaRISCCC {
++struct CondCodeInfo {
++  uint8_t Encoding;
++  const char *Mnemonic;
++};
++
++#define GET_CC_VALTable_DECL
++#include "YaRISCGenSearchableTables.inc"
++} // namespace YaRISCCC
++
 +MCCodeEmitter *createYaRISCMCCodeEmitter(const MCInstrInfo &MCII,
 +                                         MCContext &Ctx);
 +MCAsmBackend *createYaRISCAsmBackend(const Target &T,
@@ -1573,7 +1724,6 @@ index 000000000000..2e88315b2fdd
 +                                     const MCTargetOptions &Options);
 +std::unique_ptr<MCObjectTargetWriter>
 +createYaRISCELFObjectWriter(uint8_t OSABI);
-+
 +} // namespace llvm
 +
 +// Defines symbolic names for YaRISC registers. This defines a mapping from
@@ -1753,10 +1903,10 @@ index 000000000000..2bad882e0e52
 +#endif // LLVM_LIB_TARGET_YARISC_TARGETINFO_YARISCTARGETINFO_H
 diff --git a/llvm/lib/Target/YaRISC/YaRISC.h b/llvm/lib/Target/YaRISC/YaRISC.h
 new file mode 100644
-index 000000000000..1bfab5848dc6
+index 000000000000..2faae74720fc
 --- /dev/null
 +++ b/llvm/lib/Target/YaRISC/YaRISC.h
-@@ -0,0 +1,35 @@
+@@ -0,0 +1,54 @@
 +//===-- YaRISC.h - Interface for YaRISC representation ----------*- C++ -*-===//
 +//
 +// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
@@ -1774,16 +1924,35 @@ index 000000000000..1bfab5848dc6
 +#define LLVM_LIB_TARGET_YARISC_YARISC_H
 +
 +#include "MCTargetDesc/YaRISCMCTargetDesc.h"
-+#include "llvm/Support/ErrorHandling.h"
-+#include "llvm/Target/TargetMachine.h"
++#include "llvm/MC/MCInstrDesc.h"
 +
 +namespace llvm {
-+class AsmPrinter;
 +class FunctionPass;
-+class MCInst;
-+class MachineInstr;
 +class PassRegistry;
 +class YaRISCTargetMachine;
++
++namespace YaRISCCC {
++// YaRISC specific condition code. These correspond to CC_* in
++// YaRISCInstrInfo.td. They must be kept in synch.
++enum CondCode : unsigned {
++  COND_EQ = 0b0001,
++  COND_LT = 0b0010,
++  COND_LE = 0b0011,
++  COND_LO = 0b0100,
++  COND_LS = 0b0101,
++  COND_NE = 0b1001,
++  COND_GE = 0b1010,
++  COND_GT = 0b1011,
++  COND_HS = 0b1100,
++  COND_HI = 0b1101,
++};
++} // namespace YaRISCCC
++
++namespace YaRISCOp {
++enum OperandType : unsigned {
++  OPERAND_COND_CODE = MCOI::OPERAND_FIRST_TARGET,
++};
++} // namespace YaRISCOp
 +
 +FunctionPass *createYaRISCISelDag(YaRISCTargetMachine &TM);
 +
@@ -1879,10 +2048,10 @@ index 000000000000..6c62011633ee
 +}
 diff --git a/llvm/lib/Target/YaRISC/YaRISCAsmPrinter.cpp b/llvm/lib/Target/YaRISC/YaRISCAsmPrinter.cpp
 new file mode 100644
-index 000000000000..d949c68c611f
+index 000000000000..f5e8daae6677
 --- /dev/null
 +++ b/llvm/lib/Target/YaRISC/YaRISCAsmPrinter.cpp
-@@ -0,0 +1,126 @@
+@@ -0,0 +1,177 @@
 +//===-- YaRISCAsmPrinter.cpp - YaRISC LLVM assembly writer ----------------===//
 +//
 +// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
@@ -1939,6 +2108,9 @@ index 000000000000..d949c68c611f
 +
 +  void lowerInstruction(const MachineInstr *MI, MCInst &OutMI) const;
 +  bool lowerOperand(const MachineOperand &MO, MCOperand &MCOp) const;
++
++private:
++  MCOperand lowerSymbolOperand(const MachineOperand &MO, MCSymbol *Sym) const;
 +};
 +} // namespace
 +
@@ -1985,18 +2157,66 @@ index 000000000000..d949c68c611f
 +  case MachineOperand::MO_Immediate:
 +    MCOp = MCOperand::createImm(MO.getImm());
 +    break;
-+  case MachineOperand::MO_GlobalAddress:
-+    MCOp = MCOperand::createExpr(MCSpecifierExpr::create(
-+        MCSymbolRefExpr::create(getSymbol(MO.getGlobal()), OutContext),
-+        ELF::R_YARISC_16, OutContext));
-+    break;
 +  case MachineOperand::MO_MachineBasicBlock:
-+    MCOp = MCOperand::createExpr(MCSpecifierExpr::create(
-+        MCSymbolRefExpr::create(MO.getMBB()->getSymbol(), OutContext),
-+        ELF::R_YARISC_16, OutContext));
++    MCOp = lowerSymbolOperand(MO, MO.getMBB()->getSymbol());
++    break;
++  case MachineOperand::MO_GlobalAddress:
++    MCOp = lowerSymbolOperand(MO, getSymbolPreferLocal(*MO.getGlobal()));
++    break;
++  case MachineOperand::MO_BlockAddress:
++    MCOp = lowerSymbolOperand(MO, GetBlockAddressSymbol(MO.getBlockAddress()));
++    break;
++  case MachineOperand::MO_ExternalSymbol:
++    MCOp = lowerSymbolOperand(MO, GetExternalSymbolSymbol(MO.getSymbolName()));
++    break;
++  case MachineOperand::MO_ConstantPoolIndex:
++    MCOp = lowerSymbolOperand(MO, GetCPISymbol(MO.getIndex()));
++    break;
++  case MachineOperand::MO_JumpTableIndex:
++    MCOp = lowerSymbolOperand(MO, GetJTISymbol(MO.getIndex()));
++    break;
++  case MachineOperand::MO_MCSymbol:
++    MCOp = lowerSymbolOperand(MO, MO.getMCSymbol());
 +    break;
 +  }
 +  return true;
++}
++
++MCOperand YaRISCAsmPrinter::lowerSymbolOperand(const MachineOperand &MO,
++                                               MCSymbol *Sym) const {
++  uint16_t Spec = 0;
++  unsigned TF = MO.getTargetFlags();
++  switch (TF) {
++  case YaRISCII::MO_None:
++    break;
++  case YaRISCII::MO_CALL:
++  case YaRISCII::MO_CALL_PLT:
++    assert(TF != YaRISCII::MO_CALL_PLT && "not yet implemented");
++    Spec = ELF::R_YARISC_16;
++    break;
++  case YaRISCII::MO_PCREL16:
++    Spec = ELF::R_YARISC_PCREL16;
++    break;
++  case YaRISCII::MO_PCREL5_S1:
++    Spec = ELF::R_YARISC_PCREL5_S1;
++    break;
++  case YaRISCII::MO_PCREL9_S1:
++    Spec = ELF::R_YARISC_PCREL9_S1;
++    break;
++  default:
++    llvm_unreachable("unknown target flag");
++  }
++
++  const MCExpr *ME = MCSymbolRefExpr::create(Sym, OutContext);
++
++  if (!MO.isJTI() && !MO.isMBB() && MO.getOffset()) {
++    ME = MCBinaryExpr::createAdd(
++        ME, MCConstantExpr::create(MO.getOffset(), OutContext), OutContext);
++  }
++
++  if (Spec != 0)
++    ME = MCSpecifierExpr::create(ME, Spec, OutContext);
++  return MCOperand::createExpr(ME);
 +}
 +
 +char YaRISCAsmPrinter::ID = 0;
@@ -2046,10 +2266,10 @@ index 000000000000..f382ccb7efcd
 +def CSR : CalleeSavedRegs<(add R3, R4, R5)>;
 diff --git a/llvm/lib/Target/YaRISC/YaRISCFrameLowering.cpp b/llvm/lib/Target/YaRISC/YaRISCFrameLowering.cpp
 new file mode 100644
-index 000000000000..d282369d5f0f
+index 000000000000..255baa4e4706
 --- /dev/null
 +++ b/llvm/lib/Target/YaRISC/YaRISCFrameLowering.cpp
-@@ -0,0 +1,102 @@
+@@ -0,0 +1,98 @@
 +//===-- YaRISCFrameLowering.cpp - YaRISC Frame Information ----------------===//
 +//
 +// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
@@ -2065,15 +2285,11 @@ index 000000000000..d282369d5f0f
 +#include "YaRISCFrameLowering.h"
 +#include "YaRISCInstrInfo.h"
 +#include "YaRISCSubtarget.h"
-+#include "llvm/CodeGen/CFIInstBuilder.h"
 +#include "llvm/CodeGen/MachineFrameInfo.h"
 +#include "llvm/CodeGen/MachineFunction.h"
 +#include "llvm/CodeGen/MachineInstrBuilder.h"
-+#include "llvm/CodeGen/MachineModuleInfo.h"
-+#include "llvm/CodeGen/MachineRegisterInfo.h"
-+#include "llvm/CodeGen/RegisterScavenging.h"
-+#include "llvm/Support/CommandLine.h"
 +#include "llvm/Support/MathExtras.h"
++#include "llvm/Target/TargetMachine.h"
 +#include "llvm/Target/TargetOptions.h"
 +
 +using namespace llvm;
@@ -2154,7 +2370,7 @@ index 000000000000..d282369d5f0f
 +}
 diff --git a/llvm/lib/Target/YaRISC/YaRISCFrameLowering.h b/llvm/lib/Target/YaRISC/YaRISCFrameLowering.h
 new file mode 100644
-index 000000000000..348bbff62e79
+index 000000000000..236571379fd1
 --- /dev/null
 +++ b/llvm/lib/Target/YaRISC/YaRISCFrameLowering.h
 @@ -0,0 +1,42 @@
@@ -2166,7 +2382,7 @@ index 000000000000..348bbff62e79
 +//
 +//===----------------------------------------------------------------------===//
 +//
-+//
++// This file contains the YaRISC definition of the TargetFrameLowering class.
 +//
 +//===----------------------------------------------------------------------===//
 +
@@ -2278,10 +2494,10 @@ index 000000000000..1308746d1125
 +}
 diff --git a/llvm/lib/Target/YaRISC/YaRISCISelLowering.cpp b/llvm/lib/Target/YaRISC/YaRISCISelLowering.cpp
 new file mode 100644
-index 000000000000..a93d1bd1efa1
+index 000000000000..60a021835728
 --- /dev/null
 +++ b/llvm/lib/Target/YaRISC/YaRISCISelLowering.cpp
-@@ -0,0 +1,340 @@
+@@ -0,0 +1,519 @@
 +//===-- YaRISCISelLowering.cpp - YaRISC DAG Lowering Implementation -------===//
 +//
 +// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
@@ -2328,7 +2544,7 @@ index 000000000000..a93d1bd1efa1
 +
 +#include "YaRISCGenCallingConv.inc"
 +
-+// TODO: YaRISC anything special to do for isByVal()?
++// TODO: YaRISC Anything special to do for isByVal()?
 +
 +SDValue YaRISCTargetLowering::LowerFormalArguments(
 +    SDValue Chain, CallingConv::ID CallConv, bool IsVarArg,
@@ -2464,10 +2680,10 @@ index 000000000000..a93d1bd1efa1
 +    Glue = Chain.getValue(1);
 +  }
 +
-+  // For now we don't care about relocation but at some point we might and
-+  // therefore the direct and PLT calls are distinguished here. The addresses
-+  // are replaced here so that they can be matched with tglobaladdr:$target and
-+  // texternalsym:$target when replaced by out call pseudo-instruction.
++  // Not sure if we ever need PLT calls. For now distinguish them here here. The
++  // addresses are replaced here so that they can be matched with
++  // tglobaladdr:$target and texternalsym:$target when replaced by out call
++  // pseudo-instruction.
 +  if (auto *S = dyn_cast<GlobalAddressSDNode>(Callee)) {
 +    const GlobalValue *GV = S->getGlobal();
 +    unsigned OpFlags = getTargetMachine().shouldAssumeDSOLocal(GV)
@@ -2581,7 +2797,7 @@ index 000000000000..a93d1bd1efa1
 +  }
 +
 +  if (MF.getFunction().hasStructRetAttr()) {
-+    // TODO: YaRISC anything special to do here?
++    // TODO: YaRISC Anything special to do here?
 +  }
 +
 +  // Update chain and glue.
@@ -2617,17 +2833,196 @@ index 000000000000..a93d1bd1efa1
 +  setOperationAction(ISD::SUB, MVT::i8, Promote);
 +  setOperationAction(ISD::SUB, MVT::i32, Expand);
 +  setOperationAction(ISD::SUB, MVT::i64, Expand);
++
++  setOperationAction(ISD::BR_CC, MVT::i8, Promote);
++  setOperationAction(ISD::BR_CC, MVT::i16, Custom);
++  setOperationAction(ISD::BR_CC, MVT::i32, Expand);
++  setOperationAction(ISD::BR_CC, MVT::i64, Expand);
++  setOperationAction(ISD::BRCOND, MVT::Other, Expand);
++
++  setOperationAction(ISD::SELECT, MVT::i8, Promote);
++  setOperationAction(ISD::SELECT, MVT::i16, Expand);
++  setOperationAction(ISD::SELECT, MVT::i32, Expand);
++  setOperationAction(ISD::SELECT, MVT::i64, Expand);
++  setOperationAction(ISD::SELECT_CC, MVT::i8, Promote);
++  setOperationAction(ISD::SELECT_CC, MVT::i16, Custom);
++  setOperationAction(ISD::SELECT_CC, MVT::i32, Expand);
++  setOperationAction(ISD::SELECT_CC, MVT::i64, Expand);
++  setOperationAction(ISD::SETCC, MVT::i8, Promote);
++  setOperationAction(ISD::SETCC, MVT::i16, Custom);
++  setOperationAction(ISD::SETCC, MVT::i32, Expand);
++  setOperationAction(ISD::SETCC, MVT::i64, Expand);
 +}
 +
 +bool YaRISCTargetLowering::useSoftFloat() const {
 +  return Subtarget->useSoftFloat();
 +}
++
++SDValue YaRISCTargetLowering::LowerOperation(SDValue Op,
++                                             SelectionDAG &DAG) const {
++  switch (Op.getOpcode()) {
++  default:
++    llvm_unreachable("Should not custom lower this!");
++  case ISD::BR_CC:
++    return lowerBR_CC(Op, DAG);
++  case ISD::SELECT_CC:
++    return lowerSELECT_CC(Op, DAG);
++  case ISD::SETCC:
++    return lowerSETCC(Op, DAG);
++  }
++}
++
++MachineBasicBlock *YaRISCTargetLowering::EmitInstrWithCustomInserter(
++    MachineInstr &MI, MachineBasicBlock *MBB) const {
++  switch (MI.getOpcode()) {
++  default:
++    llvm_unreachable("Unexpected instr type to insert");
++  case YaRISC::SELECT:
++    return expandSelectCC(MI, MBB);
++  }
++}
++
++static YaRISCCC::CondCode intCCToYaRISCCC(ISD::CondCode CC) {
++  switch (CC) {
++  default:
++    llvm_unreachable("Unknown condition code!");
++  case ISD::SETEQ:
++    return YaRISCCC::COND_EQ;
++  case ISD::SETNE:
++    return YaRISCCC::COND_NE;
++  case ISD::SETLT:
++    return YaRISCCC::COND_LT;
++  case ISD::SETLE:
++    return YaRISCCC::COND_LE;
++  case ISD::SETGT:
++    return YaRISCCC::COND_GT;
++  case ISD::SETGE:
++    return YaRISCCC::COND_GE;
++  case ISD::SETULT:
++    return YaRISCCC::COND_LO;
++  case ISD::SETULE:
++    return YaRISCCC::COND_LS;
++  case ISD::SETUGT:
++    return YaRISCCC::COND_HI;
++  case ISD::SETUGE:
++    return YaRISCCC::COND_HS;
++  }
++}
++
++SDValue YaRISCTargetLowering::lowerBR_CC(SDValue Op, SelectionDAG &DAG) const {
++  SDLoc DL(Op);
++  SDValue Chain = Op.getOperand(0);
++  ISD::CondCode CC = cast<CondCodeSDNode>(Op.getOperand(1))->get();
++  SDValue LHS = Op.getOperand(2);
++  SDValue RHS = Op.getOperand(3);
++  SDValue Dest = Op.getOperand(4);
++
++  // Sets the status flags.
++  SDValue Cmp = DAG.getNode(YaRISCISD::CMP, DL, MVT::Glue, LHS, RHS);
++  SDValue CCVal = DAG.getConstant(intCCToYaRISCCC(CC), DL, MVT::i16);
++
++  return DAG.getNode(YaRISCISD::BRCOND, DL, MVT::Other, Chain, Dest, CCVal,
++                     Cmp);
++}
++
++SDValue YaRISCTargetLowering::lowerSELECT_CC(SDValue Op,
++                                             SelectionDAG &DAG) const {
++  SDLoc DL(Op);
++  SDValue LHS = Op.getOperand(0);
++  SDValue RHS = Op.getOperand(1);
++  SDValue TrueVal = Op.getOperand(2);
++  SDValue FalseVal = Op.getOperand(3);
++  ISD::CondCode CC = cast<CondCodeSDNode>(Op.getOperand(4))->get();
++
++  // Sets the status flags.
++  SDValue Cmp = DAG.getNode(YaRISCISD::CMP, DL, MVT::Glue, LHS, RHS);
++  SDValue CCVal = DAG.getConstant(intCCToYaRISCCC(CC), DL, MVT::i16);
++
++  return DAG.getNode(YaRISCISD::SELECT_CC, DL, TrueVal.getValueType(), TrueVal,
++                     FalseVal, CCVal, Cmp);
++}
++
++SDValue YaRISCTargetLowering::lowerSETCC(SDValue Op, SelectionDAG &DAG) const {
++  SDLoc DL(Op);
++  SDValue LHS = Op.getOperand(0);
++  SDValue RHS = Op.getOperand(1);
++  ISD::CondCode CC = cast<CondCodeSDNode>(Op.getOperand(2))->get();
++
++  // Sets the status flags.
++  SDValue Cmp = DAG.getNode(YaRISCISD::CMP, DL, MVT::Glue, LHS, RHS);
++  SDValue CCVal = DAG.getConstant(intCCToYaRISCCC(CC), DL, MVT::i16);
++
++  SDValue TrueVal = DAG.getConstant(1, DL, Op.getValueType());
++  SDValue FalseVal = DAG.getConstant(0, DL, Op.getValueType());
++
++  return DAG.getNode(YaRISCISD::SELECT_CC, DL, TrueVal.getValueType(), TrueVal,
++                     FalseVal, CCVal, Cmp);
++}
++
++MachineBasicBlock *
++YaRISCTargetLowering::expandSelectCC(MachineInstr &MI,
++                                     MachineBasicBlock *BB) const {
++  const TargetInstrInfo &TII = *Subtarget->getInstrInfo();
++  const DebugLoc &DL = MI.getDebugLoc();
++  unsigned CC = static_cast<YaRISCCC::CondCode>(MI.getOperand(3).getImm());
++
++  // To "insert" a SELECT_CC instruction, we actually have to insert the
++  // triangle control-flow pattern. The incoming instruction knows the
++  // destination vreg to set, the condition code register to branch on, the
++  // true/false values to select between, and the condition code for the branch.
++  //
++  // We produce the following control flow:
++  //     ThisMBB
++  //     |  \
++  //     |  IfFalseMBB
++  //     | /
++  //    SinkMBB
++  const BasicBlock *LLVM_BB = BB->getBasicBlock();
++  MachineFunction::iterator It = ++BB->getIterator();
++
++  MachineBasicBlock *ThisMBB = BB;
++  MachineFunction *F = BB->getParent();
++  MachineBasicBlock *IfFalseMBB = F->CreateMachineBasicBlock(LLVM_BB);
++  MachineBasicBlock *SinkMBB = F->CreateMachineBasicBlock(LLVM_BB);
++  F->insert(It, IfFalseMBB);
++  F->insert(It, SinkMBB);
++
++  // Transfer the remainder of ThisMBB and its successor edges to SinkMBB.
++  SinkMBB->splice(SinkMBB->begin(), ThisMBB,
++                  std::next(MachineBasicBlock::iterator(MI)), ThisMBB->end());
++  SinkMBB->transferSuccessorsAndUpdatePHIs(ThisMBB);
++
++  // Set the new successors for ThisMBB.
++  ThisMBB->addSuccessor(IfFalseMBB);
++  ThisMBB->addSuccessor(SinkMBB);
++
++  // TODO: YaRISC Use pseudo-instruction YaRISC::BCCa and expand in branch
++  //              relaxation to either YaRISC::BCCa5 or YaRISC::BCCa16.
++  BuildMI(ThisMBB, DL, TII.get(YaRISC::BCCa16))
++      .addMBB(SinkMBB, YaRISCII::MO_PCREL16)
++      .addImm(CC);
++
++  // IfFalseMBB just falls through to SinkMBB.
++  IfFalseMBB->addSuccessor(SinkMBB);
++
++  // %Result = phi [ %TrueValue, ThisMBB ], [ %FalseValue, IfFalseMBB ]
++  BuildMI(*SinkMBB, SinkMBB->begin(), DL, TII.get(YaRISC::PHI),
++          MI.getOperand(0).getReg())
++      .addReg(MI.getOperand(1).getReg())
++      .addMBB(ThisMBB)
++      .addReg(MI.getOperand(2).getReg())
++      .addMBB(IfFalseMBB);
++
++  // The pseudo instruction is gone now.
++  MI.eraseFromParent();
++  return SinkMBB;
++}
 diff --git a/llvm/lib/Target/YaRISC/YaRISCISelLowering.h b/llvm/lib/Target/YaRISC/YaRISCISelLowering.h
 new file mode 100644
-index 000000000000..598fc40d1813
+index 000000000000..364757ba1603
 --- /dev/null
 +++ b/llvm/lib/Target/YaRISC/YaRISCISelLowering.h
-@@ -0,0 +1,48 @@
+@@ -0,0 +1,62 @@
 +//===-- YaRISCISelLowering.h - YaRISC DAG Lowering Interface ----*- C++ -*-===//
 +//
 +// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
@@ -2671,6 +3066,20 @@ index 000000000000..598fc40d1813
 +                      const SmallVectorImpl<ISD::OutputArg> &Outs,
 +                      const SmallVectorImpl<SDValue> &OutVals, const SDLoc &DL,
 +                      SelectionDAG &DAG) const override;
++
++  SDValue LowerOperation(SDValue Op, SelectionDAG &DAG) const override;
++
++  MachineBasicBlock *
++  EmitInstrWithCustomInserter(MachineInstr &MI,
++                              MachineBasicBlock *MBB) const override;
++
++private:
++  SDValue lowerBR_CC(SDValue Op, SelectionDAG &DAG) const;
++  SDValue lowerSELECT_CC(SDValue Op, SelectionDAG &DAG) const;
++  SDValue lowerSETCC(SDValue Op, SelectionDAG &DAG) const;
++
++  MachineBasicBlock *expandSelectCC(MachineInstr &MI,
++                                    MachineBasicBlock *BB) const;
 +};
 +
 +} // namespace llvm
@@ -2678,10 +3087,10 @@ index 000000000000..598fc40d1813
 +#endif // LLVM_LIB_TARGET_YARISC_YARISCISELLOWERING_H
 diff --git a/llvm/lib/Target/YaRISC/YaRISCInstrFormats.td b/llvm/lib/Target/YaRISC/YaRISCInstrFormats.td
 new file mode 100644
-index 000000000000..136d76d4e131
+index 000000000000..4b1797a13b81
 --- /dev/null
 +++ b/llvm/lib/Target/YaRISC/YaRISCInstrFormats.td
-@@ -0,0 +1,154 @@
+@@ -0,0 +1,229 @@
 +//===-- YaRISCInstrFormats.td - YaRISC Instruction Formats -*- tablegen -*-===//
 +//
 +// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
@@ -2718,6 +3127,8 @@ index 000000000000..136d76d4e131
 +  let Inst{8-6} = op0;
 +  let Inst{14-9} = ops;
 +  let Inst{15} = sel;
++  let mayLoad = 0;
++  let mayStore = 0;
 +}
 +
 +class InstOpImm<int sz, dag outs, dag ins, string asmstr, list<dag> pattern,
@@ -2797,6 +3208,21 @@ index 000000000000..136d76d4e131
 +  let as = 1;
 +}
 +
++class InstOp2Imm4Reg<bits<6> op, dag outs, dag ins, string asmstr,
++                     list<dag> pattern, InstrItinClass itin = NoItinerary>
++  : InstOpImm4<outs, ins, asmstr, pattern, itin> {
++  let opcode = op;
++  let as = 0;
++}
++
++class InstOp2Imm16Reg<bits<6> op, dag outs, dag ins, string asmstr,
++                      list<dag> pattern, InstrItinClass itin = NoItinerary>
++  : InstOpImm16<outs, ins, asmstr, pattern, itin> {
++  let opcode = op;
++  let st = 0;
++  let as = 0;
++}
++
 +class InstOp3Reg<bits<6> op, dag outs, dag ins, string asmstr,
 +                 list<dag> pattern, InstrItinClass itin = NoItinerary>
 +  : InstOpReg<outs, ins, asmstr, pattern, itin> {
@@ -2836,12 +3262,70 @@ index 000000000000..136d76d4e131
 +  let st{2-0} = op2;
 +  let as = 0;
 +}
++
++class InstBranch<int sz, dag outs, dag ins, string asmstr, list<dag> pattern,
++                 InstrItinClass itin = NoItinerary>
++  : InstYaRISC<sz, outs, ins, asmstr, pattern, itin> {
++  let isBranch = 1;
++  let isTerminator = 1;
++  let isBarrier = 1;
++
++  bits<1> aloc;
++  let Inst{15} = aloc;
++}
++
++class InstBranchAddr9<bits<6> op, dag outs, dag ins, string asmstr,
++                      list<dag> pattern, InstrItinClass itin = NoItinerary>
++  : InstBranch<2, outs, ins, asmstr, pattern, itin> {
++  bits<9> addr;
++  let Inst{14-6} = addr;
++  let opcode = op;
++  let aloc = 0;
++}
++
++class InstBranchAddr16<bits<6> op, dag outs, dag ins, string asmstr,
++                       list<dag> pattern, InstrItinClass itin = NoItinerary>
++  : InstBranch<4, outs, ins, asmstr, pattern, itin> {
++  bits<16> addr;
++  let Inst{14-6} = 0;
++  let Inst{31-16} = addr;
++  let opcode = op;
++  let aloc = 1;
++}
++
++class InstBranchCond<int sz, dag outs, dag ins, string asmstr,
++                     list<dag> pattern, InstrItinClass itin = NoItinerary>
++  : InstBranch<sz, outs, ins, asmstr, pattern, itin> {
++  let isBarrier = 0;
++
++  bits<4> cc;
++  let Inst{9-6} = cc;
++}
++
++class InstBranchCond5<bits<6> op, dag outs, dag ins, string asmstr,
++                      list<dag> pattern, InstrItinClass itin = NoItinerary>
++  : InstBranchCond<2, outs, ins, asmstr, pattern, itin> {
++  bits<5> addr;
++  let Inst{14-10} = addr;
++  let opcode = op;
++  let aloc = 0;
++}
++
++class InstBranchCond16<bits<6> op, dag outs, dag ins, string asmstr,
++                       list<dag> pattern, InstrItinClass itin = NoItinerary>
++  : InstBranchCond<4, outs, ins, asmstr, pattern, itin> {
++  bits<16> addr;
++  let Inst{14-10} = 0;
++  let Inst{31-16} = addr;
++  let opcode = op;
++  let aloc = 1;
++}
 diff --git a/llvm/lib/Target/YaRISC/YaRISCInstrInfo.cpp b/llvm/lib/Target/YaRISC/YaRISCInstrInfo.cpp
 new file mode 100644
-index 000000000000..c8f5ae2b48b8
+index 000000000000..acb52c20d3e7
 --- /dev/null
 +++ b/llvm/lib/Target/YaRISC/YaRISCInstrInfo.cpp
-@@ -0,0 +1,178 @@
+@@ -0,0 +1,407 @@
 +//===-- YaRISCInstrInfo.cpp - YaRISC Instruction Information --------------===//
 +//
 +// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
@@ -2863,6 +3347,8 @@ index 000000000000..c8f5ae2b48b8
 +#include "llvm/CodeGen/MachineMemOperand.h"
 +#include "llvm/CodeGen/MachineRegisterInfo.h"
 +#include "llvm/Support/ErrorHandling.h"
++#include "llvm/Support/MathExtras.h"
++#include "llvm/Target/TargetMachine.h"
 +
 +using namespace llvm;
 +
@@ -3000,10 +3486,237 @@ index 000000000000..c8f5ae2b48b8
 +  return true;
 +}
 +
++static void parseCondBranch(MachineInstr &LastInst, MachineBasicBlock *&Target,
++                            SmallVectorImpl<MachineOperand> &Cond) {
++  // Block ends with fall-through condbranch.
++  assert(LastInst.getDesc().isConditionalBranch() &&
++         "Unknown conditional branch");
++
++  unsigned Opc = LastInst.getOpcode();
++  int64_t CC = LastInst.getOperand(1).getImm();
++
++  Cond.push_back(MachineOperand::CreateImm(Opc));
++  Cond.push_back(MachineOperand::CreateImm(CC));
++  Target = LastInst.getOperand(0).getMBB();
++}
++
++static YaRISCCC::CondCode getInvertedCondCode(YaRISCCC::CondCode CC) {
++  switch (CC) {
++  default:
++    llvm_unreachable("Invalid condition!");
++  case YaRISCCC::COND_EQ:
++    return YaRISCCC::COND_NE;
++  case YaRISCCC::COND_LT:
++    return YaRISCCC::COND_GE;
++  case YaRISCCC::COND_LE:
++    return YaRISCCC::COND_GT;
++  case YaRISCCC::COND_LO:
++    return YaRISCCC::COND_HS;
++  case YaRISCCC::COND_LS:
++    return YaRISCCC::COND_HI;
++  case YaRISCCC::COND_NE:
++    return YaRISCCC::COND_EQ;
++  case YaRISCCC::COND_GE:
++    return YaRISCCC::COND_LT;
++  case YaRISCCC::COND_GT:
++    return YaRISCCC::COND_LE;
++  case YaRISCCC::COND_HS:
++    return YaRISCCC::COND_LO;
++  case YaRISCCC::COND_HI:
++    return YaRISCCC::COND_LS;
++  }
++}
++
++bool YaRISCInstrInfo::isBranchOffsetInRange(unsigned BranchOp,
++                                            int64_t BrOffset) const {
++
++  switch (BranchOp) {
++  default:
++    llvm_unreachable("unexpected opcode!");
++  case YaRISC::BCCa5:
++    // The branch address is relative to the next instruction.
++    BrOffset -= 2;
++    return isShiftedInt<5, 1>(BrOffset);
++  case YaRISC::BCCa16:
++    // The branch address is relative to the next instruction.
++    BrOffset -= 4;
++    return isInt<16>(BrOffset);
++  }
++}
++
++MachineBasicBlock *
++YaRISCInstrInfo::getBranchDestBlock(const MachineInstr &MI) const {
++  switch (MI.getOpcode()) {
++  default:
++    llvm_unreachable("unexpected opcode!");
++  case YaRISC::BCCa5:
++  case YaRISC::BCCa16:
++    return MI.getOperand(0).getMBB();
++  }
++}
++
++bool YaRISCInstrInfo::analyzeBranch(MachineBasicBlock &MBB,
++                                    MachineBasicBlock *&TBB,
++                                    MachineBasicBlock *&FBB,
++                                    SmallVectorImpl<MachineOperand> &Cond,
++                                    bool AllowModify) const {
++  TBB = FBB = nullptr;
++  Cond.clear();
++
++  return true;
++  /* TODO: YaRISC Need to implement unconditional branch.
++  // If the block has no terminators, it just falls into the block after it.
++  MachineBasicBlock::iterator I = MBB.getLastNonDebugInstr();
++  if (I == MBB.end() || !isUnpredicatedTerminator(*I))
++    return false;
++
++  // Count the number of terminators and find the first unconditional or
++  // indirect branch.
++  MachineBasicBlock::iterator FirstUncondOrIndirectBr = MBB.end();
++  int NumTerminators = 0;
++  for (auto J = I.getReverse(); J != MBB.rend() && isUnpredicatedTerminator(*J);
++       J++) {
++    NumTerminators++;
++    if (J->getDesc().isUnconditionalBranch() ||
++        J->getDesc().isIndirectBranch()) {
++      FirstUncondOrIndirectBr = J.getReverse();
++    }
++  }
++
++  // If AllowModify is true, we can erase any terminators after
++  // FirstUncondOrIndirectBR.
++  if (AllowModify && FirstUncondOrIndirectBr != MBB.end()) {
++    while (std::next(FirstUncondOrIndirectBr) != MBB.end()) {
++      std::next(FirstUncondOrIndirectBr)->eraseFromParent();
++      NumTerminators--;
++    }
++    I = FirstUncondOrIndirectBr;
++  }
++
++  // We can't handle blocks that end in an indirect branch.
++  if (I->getDesc().isIndirectBranch())
++    return true;
++
++  // We can't handle Generic branch opcodes from Global ISel.
++  if (I->isPreISelOpcode())
++    return true;
++
++  // We can't handle blocks with more than 2 terminators.
++  if (NumTerminators > 2)
++    return true;
++
++  // Handle a single unconditional branch.
++  if (NumTerminators == 1 && I->getDesc().isUnconditionalBranch()) {
++    TBB = getBranchDestBlock(*I);
++    return false;
++  }
++
++  // Handle a single conditional branch.
++  if (NumTerminators == 1 && I->getDesc().isConditionalBranch()) {
++    parseCondBranch(*I, TBB, Cond);
++    return false;
++  }
++
++  // Handle a conditional branch followed by an unconditional branch.
++  if (NumTerminators == 2 && std::prev(I)->getDesc().isConditionalBranch() &&
++      I->getDesc().isUnconditionalBranch()) {
++    parseCondBranch(*std::prev(I), TBB, Cond);
++    FBB = getBranchDestBlock(*I);
++    return false;
++  }
++
++  // Otherwise, we can't handle this.
++  return true;
++  */
++}
++
++unsigned YaRISCInstrInfo::removeBranch(MachineBasicBlock &MBB,
++                                       int *BytesRemoved) const {
++  if (BytesRemoved)
++    *BytesRemoved = 0;
++
++  MachineBasicBlock::iterator I = MBB.end();
++  unsigned Count = 0;
++  int Removed = 0;
++  while (I != MBB.begin()) {
++    --I;
++
++    if (I->isDebugInstr())
++      continue;
++
++    if (!I->getDesc().isUnconditionalBranch() &&
++        !I->getDesc().isConditionalBranch())
++      break; // Not a branch
++
++    Removed += getInstSizeInBytes(*I);
++    I->eraseFromParent();
++    I = MBB.end();
++    ++Count;
++  }
++
++  if (BytesRemoved)
++    *BytesRemoved = Removed;
++  return Count;
++}
++
++unsigned YaRISCInstrInfo::insertBranch(
++    MachineBasicBlock &MBB, MachineBasicBlock *TBB, MachineBasicBlock *FBB,
++    ArrayRef<MachineOperand> Cond, const DebugLoc &DL, int *BytesAdded) const {
++  if (BytesAdded)
++    *BytesAdded = 0;
++
++  // Shouldn't be a fall through.
++  assert(TBB && "insertBranch must not be told to insert a fallthrough");
++  assert((Cond.size() == 2 || Cond.empty()) &&
++         "YaRISC branch conditions have two components!");
++
++  // Unconditional branch.
++  if (Cond.empty()) {
++    llvm_unreachable("not yet implemented");
++    /* TODO: YaRISC Need to implement unconditional branch.
++    MachineInstr &MI =
++        *BuildMI(&MBB, DL, get(YaRISC::BRA)).addMBB(TBB, TargetFlags);
++    if (BytesAdded)
++      *BytesAdded += getInstSizeInBytes(MI);
++    return 1;
++    */
++  }
++
++  unsigned Opc = Cond[0].getImm();
++  assert((Opc == YaRISC::BCCa16 || Opc == YaRISC::BCCa5) &&
++         "Unexpected conditional branch");
++  unsigned TargetFlags =
++      Opc == YaRISC::BCCa5 ? YaRISCII::MO_PCREL5_S1 : YaRISCII::MO_PCREL16;
++
++  // Either a one or two-way conditional branch.
++  MachineInstr &CondMI =
++      *BuildMI(&MBB, DL, get(Opc)).addMBB(TBB, TargetFlags).add(Cond[1]);
++  if (BytesAdded)
++    *BytesAdded += getInstSizeInBytes(CondMI);
++
++  // One-way conditional branch.
++  if (!FBB)
++    return 1;
++
++  // Two-way conditional branch.
++  llvm_unreachable("not yet implemented");
++  /* TODO: YaRISC Need to implement unconditional branch.
++  MachineInstr &MI =
++      *BuildMI(&MBB, DL, get(YaRISC::BRA)).addMBB(FBB, TargetFlags);
++  if (BytesAdded)
++    *BytesAdded += getInstSizeInBytes(MI);
++  return 2;
++  */
++}
++
 +bool YaRISCInstrInfo::reverseBranchCondition(
 +    SmallVectorImpl<MachineOperand> &Cond) const {
-+  // TODO: YaRISC
-+  return YaRISCGenInstrInfo::reverseBranchCondition(Cond);
++  assert(Cond.size() == 2 && "Invalid branch condition!");
++
++  YaRISCCC::CondCode CC = static_cast<YaRISCCC::CondCode>(Cond[1].getImm());
++  Cond[1].setImm(getInvertedCondCode(CC));
++
++  return false;
 +}
 +
 +std::pair<unsigned, unsigned>
@@ -3022,10 +3735,10 @@ index 000000000000..c8f5ae2b48b8
 +}
 diff --git a/llvm/lib/Target/YaRISC/YaRISCInstrInfo.h b/llvm/lib/Target/YaRISC/YaRISCInstrInfo.h
 new file mode 100644
-index 000000000000..29a0f8b881ae
+index 000000000000..208c13cf5582
 --- /dev/null
 +++ b/llvm/lib/Target/YaRISC/YaRISCInstrInfo.h
-@@ -0,0 +1,82 @@
+@@ -0,0 +1,103 @@
 +//===-- YaRISCInstrInfo.h - YaRISC Instruction Information ------*- C++ -*-===//
 +//
 +// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
@@ -3054,11 +3767,14 @@ index 000000000000..29a0f8b881ae
 +  MO_None,
 +  MO_CALL,
 +  MO_CALL_PLT,
++  MO_PCREL16,
++  MO_PCREL5_S1,
++  MO_PCREL9_S1,
 +
 +  // Used to differentiate between target-specific "direct" flags and "bitmask"
 +  // flags. A machine operand can only have one "direct" flag, but can have
 +  // multiple "bitmask" flags.
-+  MO_DIRECT_FLAG_MASK = 0x03,
++  MO_DIRECT_FLAG_MASK = 0x07,
 +};
 +} // namespace YaRISCII
 +
@@ -3095,6 +3811,24 @@ index 000000000000..29a0f8b881ae
 +
 +  bool expandPostRAPseudo(MachineInstr &MI) const override;
 +
++  bool isBranchOffsetInRange(unsigned BranchOp,
++                             int64_t BrOffset) const override;
++
++  MachineBasicBlock *getBranchDestBlock(const MachineInstr &MI) const override;
++
++  bool analyzeBranch(MachineBasicBlock &MBB, MachineBasicBlock *&TBB,
++                     MachineBasicBlock *&FBB,
++                     SmallVectorImpl<MachineOperand> &Cond,
++                     bool AllowModify = false) const override;
++
++  unsigned removeBranch(MachineBasicBlock &MBB,
++                        int *BytesRemoved = nullptr) const override;
++
++  unsigned insertBranch(MachineBasicBlock &MBB, MachineBasicBlock *TBB,
++                        MachineBasicBlock *FBB, ArrayRef<MachineOperand> Cond,
++                        const DebugLoc &DL,
++                        int *BytesAdded = nullptr) const override;
++
 +  bool
 +  reverseBranchCondition(SmallVectorImpl<MachineOperand> &Cond) const override;
 +
@@ -3110,10 +3844,10 @@ index 000000000000..29a0f8b881ae
 +#endif // LLVM_LIB_TARGET_YARISC_YARISCINSTRINFO_H
 diff --git a/llvm/lib/Target/YaRISC/YaRISCInstrInfo.td b/llvm/lib/Target/YaRISC/YaRISCInstrInfo.td
 new file mode 100644
-index 000000000000..090788fa8d5c
+index 000000000000..7f4b2cbe64f9
 --- /dev/null
 +++ b/llvm/lib/Target/YaRISC/YaRISCInstrInfo.td
-@@ -0,0 +1,270 @@
+@@ -0,0 +1,406 @@
 +//===-- YaRISCInstrInfo.td - Target Description for YaRISC Target ---------===//
 +//
 +// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
@@ -3130,17 +3864,51 @@ index 000000000000..090788fa8d5c
 +// YaRISC specific DAG Nodes
 +//===----------------------------------------------------------------------===//
 +
-+def callseq_start : SDNode<"ISD::CALLSEQ_START",
-+                           SDCallSeqStart<[SDTCisVT<0, i16>, SDTCisVT<1, i16>]>,
-+                           [SDNPHasChain, SDNPOutGlue]>;
-+def callseq_end : SDNode<"ISD::CALLSEQ_END",
-+                         SDCallSeqEnd<[SDTCisVT<0, i16>, SDTCisVT<1, i16>]>,
-+                         [SDNPHasChain, SDNPOptInGlue, SDNPOutGlue]>;
-+def call : SDNode<"YaRISCISD::CALL",
-+                  SDTypeProfile<0, -1, [SDTCisVT<0, iPTR>]>,
-+                  [SDNPHasChain, SDNPOutGlue, SDNPOptInGlue, SDNPVariadic]>;
-+def ret : SDNode<"YaRISCISD::RET_GLUE", SDTNone,
-+                 [SDNPHasChain, SDNPOptInGlue, SDNPVariadic]>;
++def SDT_CallSeqStart : SDCallSeqStart<[
++  SDTCisVT<0, i16>, // amount
++  SDTCisVT<1, i16>, // alignment
++]>;
++
++def SDT_CallSeqEnd : SDCallSeqEnd<[
++  SDTCisVT<0, i16>, // amount
++  SDTCisVT<1, i16>, // alignment
++]>;
++
++def SDT_YaRISCCall : SDTypeProfile<0, -1, [
++  SDTCisVT<0, iPTR>, // call target
++]>;
++
++def SDT_YaRISCCmp : SDTypeProfile<0, 2, [
++  SDTCisSameAs<0, 1>, // lhs and rhs
++]>;
++
++def SDT_YaRISCBrcond : SDTypeProfile<0, 2, [
++  SDTCisVT<0, OtherVT>, // branch target basic block
++  SDTCisVT<1, i16>,     // condition code
++]>;
++
++def SDT_YaRISCSelectCC : SDTypeProfile<1, 3, [
++  SDTCisSameAs<0, 1>, // selected output value
++  SDTCisSameAs<1, 2>, // true and false input value
++  SDTCisVT<3, i16>,   // condition code
++]>;
++
++def CallSeqStart : SDNode<"ISD::CALLSEQ_START", SDT_CallSeqStart,
++                          [SDNPHasChain, SDNPOutGlue]>;
++def CallSeqEnd : SDNode<"ISD::CALLSEQ_END", SDT_CallSeqEnd,
++                        [SDNPHasChain, SDNPOptInGlue, SDNPOutGlue]>;
++
++def YaRISCCall : SDNode<"YaRISCISD::CALL", SDT_YaRISCCall,
++                        [SDNPHasChain, SDNPOutGlue, SDNPOptInGlue,
++                         SDNPVariadic]>;
++def YaRISCRetGlue : SDNode<"YaRISCISD::RET_GLUE", SDTNone,
++                           [SDNPHasChain, SDNPOptInGlue, SDNPVariadic]>;
++
++def YaRISCCmp : SDNode<"YaRISCISD::CMP", SDT_YaRISCCmp, [SDNPOutGlue]>;
++def YaRISCBrcond : SDNode<"YaRISCISD::BRCOND", SDT_YaRISCBrcond,
++                          [SDNPHasChain, SDNPInGlue]>;
++def YaRISCSelectCC : SDNode<"YaRISCISD::SELECT_CC", SDT_YaRISCSelectCC,
++                            [SDNPInGlue]>;
 +
 +//===----------------------------------------------------------------------===//
 +// Instruction Formats
@@ -3161,7 +3929,42 @@ index 000000000000..090788fa8d5c
 +// Instruction Pattern Stuff
 +//===----------------------------------------------------------------------===//
 +
-+def simm4 : ImmLeaf<i16, [{ return isInt<4>(Imm); }]>;
++def ccode : Operand<i16> {
++  let PrintMethod = "printCondCode";
++  let OperandNamespace = "YaRISCOp";
++  let OperandType = "OPERAND_COND_CODE";
++}
++
++class SImmOperand<int N>
++  : Operand<i16>, ImmLeaf<i16, "return isInt<"#N#">(Imm);"> {
++  let EncoderMethod = "getImmOpValue";
++  let DecoderMethod = "decodeSImmOperand<"#N#">";
++}
++
++class UImmOperand<int N>
++  : Operand<i16>, ImmLeaf<i16, "return isUInt<"#N#">(Imm);"> {
++  let EncoderMethod = "getImmOpValue";
++  let DecoderMethod = "decodeUImmOperand<"#N#">";
++}
++
++def simm4 : SImmOperand<4>;
++def uimm16 : UImmOperand<16>;
++
++class BranchOperand<int N, int S = 0>
++  : Operand<OtherVT>, ImmLeaf<i16, "return isShiftedInt<"#N#", "#S#">(Imm);"> {
++  let EncoderMethod = "getBranchTargetOpValue<"#N#", "#S#">";
++  let OperandType = "OPERAND_PCREL";
++  let MCOperandPredicate = [{
++    int64_t Imm;
++    if (MCOp.evaluateAsConstantImm(Imm))
++      return isShiftedInt<}]#N#[{,}]#S#[{>(Imm);
++    return MCOp.isBareSymbolRef();
++  }];
++}
++
++def brtarget16 : BranchOperand<16>;
++def brtarget5 : BranchOperand<5, 1>;
++def brtarget9 : BranchOperand<9, 1>;
 +
 +def calltarget : Operand<iPTR>;
 +
@@ -3175,37 +3978,48 @@ index 000000000000..090788fa8d5c
 +// Flag Conditions
 +//===----------------------------------------------------------------------===//
 +
-+class CC_YaRISC<bits<4> Val, string Name> {
-+  bits<4> Value = Val;
++class CC_VAL<bits<4> Enc, string Name> {
++  bits<4> Encoding = Enc;
 +  string Mnemonic = Name;
 +}
 +
-+def CC_EQ : CC_YaRISC<0b0001, "EQ">;
-+def CC_LT : CC_YaRISC<0b0010, "LT">;
-+def CC_LE : CC_YaRISC<0b0011, "LE">;
-+def CC_LO : CC_YaRISC<0b0100, "LO">;
-+def CC_LS : CC_YaRISC<0b0101, "LS">;
-+def CC_NE : CC_YaRISC<0b1001, "NE">;
-+def CC_GE : CC_YaRISC<0b1010, "GE">;
-+def CC_GT : CC_YaRISC<0b1011, "GT">;
-+def CC_HS : CC_YaRISC<0b1100, "HS">;
-+def CC_HI : CC_YaRISC<0b1101, "HI">;
++def CC_VALTable : GenericTable {
++  let FilterClass = "CC_VAL";
++  let CppTypeName = "CondCodeInfo";
++  let Fields = ["Encoding", "Mnemonic"];
++  let PrimaryKey = ["Encoding"];
++  let PrimaryKeyName = "lookupMnemonicByEncoding";
++}
++
++def CC_EQ : CC_VAL<0b0001, "EQ">;
++def CC_LT : CC_VAL<0b0010, "LT">;
++def CC_LE : CC_VAL<0b0011, "LE">;
++def CC_LO : CC_VAL<0b0100, "LO">;
++def CC_LS : CC_VAL<0b0101, "LS">;
++def CC_NE : CC_VAL<0b1001, "NE">;
++def CC_GE : CC_VAL<0b1010, "GE">;
++def CC_GT : CC_VAL<0b1011, "GT">;
++def CC_HS : CC_VAL<0b1100, "HS">;
++def CC_HI : CC_VAL<0b1101, "HI">;
 +
 +//===----------------------------------------------------------------------===//
 +// Instruction Class Templates
 +//===----------------------------------------------------------------------===//
 +
++// TODO: YaRISC Consider generalization with memory operands.
++
 +multiclass Move<bits<6> op, string opstr> {
 +  def r : InstOp2Reg<op, (outs GPR:$op0), (ins GPR:$op1),
 +                     !strconcat(opstr, " $op0, $op1"), []>;
 +
-+  def i16 : InstOp2RegImm16<op, (outs GPR:$op0), (ins i16imm:$imm),
-+                            !strconcat(opstr, " $op0, $imm"),
-+                            [(set GPR:$op0, imm:$imm)]>;
-+
-+  def i4 : InstOp2RegImm4<op, (outs GPR:$op0), (ins i16imm:$imm),
++  let AddedComplexity = 1 in
++  def i4 : InstOp2RegImm4<op, (outs GPR:$op0), (ins simm4:$imm),
 +                          !strconcat(opstr, " $op0, $imm"),
 +                          [(set GPR:$op0, simm4:$imm)]>;
++
++  def i16 : InstOp2RegImm16<op, (outs GPR:$op0), (ins uimm16:$imm),
++                            !strconcat(opstr, " $op0, $imm"),
++                            [(set GPR:$op0, uimm16:$imm)]>;
 +}
 +
 +multiclass Load<bits<6> op, string opstr> {
@@ -3213,13 +4027,14 @@ index 000000000000..090788fa8d5c
 +                     !strconcat(opstr, " $op0, [$op1]"),
 +                     [(set GPR:$op0, (load GPR:$op1))]>;
 +
-+  def i16 : InstOp2RegImm16<op, (outs GPR:$op0), (ins i16imm:$imm),
-+                            !strconcat(opstr, " $op0, [$imm]"),
-+                            [(set GPR:$op0, (load imm:$imm))]>;
-+
-+  def i4 : InstOp2RegImm4<op, (outs GPR:$op0), (ins i16imm:$imm),
++  let AddedComplexity = 1 in
++  def i4 : InstOp2RegImm4<op, (outs GPR:$op0), (ins simm4:$imm),
 +                          !strconcat(opstr, " $op0, [$imm]"),
 +                          [(set GPR:$op0, (load simm4:$imm))]>;
++
++  def i16 : InstOp2RegImm16<op, (outs GPR:$op0), (ins uimm16:$imm),
++                            !strconcat(opstr, " $op0, [$imm]"),
++                            [(set GPR:$op0, (load uimm16:$imm))]>;
 +}
 +
 +multiclass IndexedLoad<bits<6> op, string opstr> {
@@ -3227,17 +4042,18 @@ index 000000000000..090788fa8d5c
 +                      !strconcat(opstr, " $op0, [$op1, $op2]"),
 +                      [(set GPR:$op0, (load (add GPR:$op1, GPR:$op2)))]>;
 +
-+  def ri16 : InstOp3RegImm16<op, (outs GPR:$op0), (ins GPR:$op1, i16imm:$imm),
++  def ri16 : InstOp3RegImm16<op, (outs GPR:$op0), (ins GPR:$op1, uimm16:$imm),
 +                             !strconcat(opstr, " $op0, [$op1, $imm]"),
-+                             [(set GPR:$op0, (load (add GPR:$op1, imm:$imm)))]>;
++                             [(set GPR:$op0,
++                               (load (add GPR:$op1, uimm16:$imm)))]>;
 +
-+  let Uses = [SP] in
-+  def spi4 : InstOp3RegImm4<op, (outs GPR:$op0), (ins i16imm:$imm),
++  let Uses = [SP], AddedComplexity = 1 in
++  def spi4 : InstOp3RegImm4<op, (outs GPR:$op0), (ins simm4:$imm),
 +                            !strconcat(opstr, " $op0, [sp, $imm]"),
 +                            [(set GPR:$op0, (load (add SP, simm4:$imm)))]>;
 +
-+  let Uses = [R5] in
-+  def fpi4 : InstOp3Imm4Reg<op, (outs GPR:$op0), (ins i16imm:$imm),
++  let Uses = [R5], AddedComplexity = 1 in
++  def fpi4 : InstOp3Imm4Reg<op, (outs GPR:$op0), (ins simm4:$imm),
 +                            !strconcat(opstr, " $op0, [r5, $imm]"),
 +                            [(set GPR:$op0, (load (add R5, simm4:$imm)))]>;
 +}
@@ -3247,13 +4063,14 @@ index 000000000000..090788fa8d5c
 +                     !strconcat(opstr, " $op0, [$op1]"),
 +                     [(store GPR:$op0, GPR:$op1)]>;
 +
-+  def i16 : InstOp2RegImm16<op, (outs), (ins GPR:$op0, i16imm:$imm),
-+                            !strconcat(opstr, " $op0, [$imm]"),
-+                            [(store GPR:$op0, imm:$imm)]>;
-+
-+  def i4 : InstOp2RegImm4<op, (outs), (ins GPR:$op0, i16imm:$imm),
++  let AddedComplexity = 1 in
++  def i4 : InstOp2RegImm4<op, (outs), (ins GPR:$op0, simm4:$imm),
 +                          !strconcat(opstr, " $op0, [$imm]"),
 +                          [(store GPR:$op0, simm4:$imm)]>;
++
++  def i16 : InstOp2RegImm16<op, (outs), (ins GPR:$op0, uimm16:$imm),
++                            !strconcat(opstr, " $op0, [$imm]"),
++                            [(store GPR:$op0, uimm16:$imm)]>;
 +}
 +
 +multiclass IndexedStore<bits<6> op, string opstr> {
@@ -3261,17 +4078,17 @@ index 000000000000..090788fa8d5c
 +                      !strconcat(opstr, " $op0, [$op1, $op2]"),
 +                      [(store GPR:$op0, (add GPR:$op1, GPR:$op2))]>;
 +
-+  def ri16 : InstOp3RegImm16<op, (outs), (ins GPR:$op0, GPR:$op1, i16imm:$imm),
++  def ri16 : InstOp3RegImm16<op, (outs), (ins GPR:$op0, GPR:$op1, uimm16:$imm),
 +                             !strconcat(opstr, " $op0, [$op1, $imm]"),
-+                             [(store GPR:$op0, (add GPR:$op1, imm:$imm))]>;
++                             [(store GPR:$op0, (add GPR:$op1, uimm16:$imm))]>;
 +
-+  let Uses = [SP] in
-+  def spi4 : InstOp3RegImm4<op, (outs), (ins GPR:$op0, i16imm:$imm),
++  let Uses = [SP], AddedComplexity = 1 in
++  def spi4 : InstOp3RegImm4<op, (outs), (ins GPR:$op0, simm4:$imm),
 +                            !strconcat(opstr, " $op0, [sp, $imm]"),
 +                            [(store GPR:$op0, (add SP, simm4:$imm))]>;
 +
-+  let Uses = [R5] in
-+  def fpi4 : InstOp3Imm4Reg<op, (outs), (ins GPR:$op0, i16imm:$imm),
++  let Uses = [R5], AddedComplexity = 1 in
++  def fpi4 : InstOp3Imm4Reg<op, (outs), (ins GPR:$op0, simm4:$imm),
 +                            !strconcat(opstr, " $op0, [r5, $imm]"),
 +                            [(store GPR:$op0, (add R5, simm4:$imm))]>;
 +}
@@ -3281,13 +4098,14 @@ index 000000000000..090788fa8d5c
 +                     !strconcat(opstr, " $op0, $op1"),
 +                     [(set GPR:$op0, (opnode GPR:$op1))]>;
 +
-+  def i16 : InstOp2RegImm16<op, (outs GPR:$op0), (ins i16imm:$imm),
-+                            !strconcat(opstr, " $op0, $imm"),
-+                            [(set GPR:$op0, (opnode imm:$imm))]>;
-+
-+  def i4 : InstOp2RegImm4<op, (outs GPR:$op0), (ins i16imm:$imm),
++  let AddedComplexity = 1 in
++  def i4 : InstOp2RegImm4<op, (outs GPR:$op0), (ins simm4:$imm),
 +                          !strconcat(opstr, " $op0, $imm"),
 +                          [(set GPR:$op0, (opnode simm4:$imm))]>;
++
++  def i16 : InstOp2RegImm16<op, (outs GPR:$op0), (ins uimm16:$imm),
++                            !strconcat(opstr, " $op0, $imm"),
++                            [(set GPR:$op0, (opnode uimm16:$imm))]>;
 +}
 +
 +multiclass BinaryArith<bits<6> op, string opstr, SDNode opnode> {
@@ -3295,24 +4113,59 @@ index 000000000000..090788fa8d5c
 +                      !strconcat(opstr, " $op0, $op1, $op2"),
 +                      [(set GPR:$op0, (opnode GPR:$op1, GPR:$op2))]>;
 +
-+  def ri16 : InstOp3RegImm16<op, (outs GPR:$op0), (ins GPR:$op1, i16imm:$imm),
-+                             !strconcat(opstr, " $op0, $op1, $imm"),
-+                             [(set GPR:$op0, (opnode GPR:$op1, imm:$imm))]>;
-+
-+  let Constraints = "$op0 = $op1" in
-+  def ri4 : InstOp3RegImm4<op, (outs GPR:$op0), (ins GPR:$op1, i16imm:$imm),
++  let Constraints = "$op0 = $op1", AddedComplexity = 1 in
++  def ri4 : InstOp3RegImm4<op, (outs GPR:$op0), (ins GPR:$op1, simm4:$imm),
 +                           !strconcat(opstr, " $op0, $op1, $imm"),
 +                           [(set GPR:$op0, (opnode GPR:$op1, simm4:$imm))]>;
++
++  def ri16 : InstOp3RegImm16<op, (outs GPR:$op0), (ins GPR:$op1, uimm16:$imm),
++                             !strconcat(opstr, " $op0, $op1, $imm"),
++                             [(set GPR:$op0, (opnode GPR:$op1, uimm16:$imm))]>;
 +}
 +
 +multiclass AsymmetricArith<bits<6> op, string opstr, SDNode opnode>
 +  : BinaryArith<op, opstr, opnode> {
-+  def i16r : InstOp3Imm16Reg<op, (outs GPR:$op0), (ins i16imm:$imm, GPR:$op2),
-+                             !strconcat(opstr, " $op0, $imm, $op2"), []>;
-+
-+  let Constraints = "$op0 = $op2" in
-+  def i4r : InstOp3Imm4Reg<op, (outs GPR:$op0), (ins i16imm:$imm, GPR:$op2),
++  let Constraints = "$op0 = $op2", AddedComplexity = 1 in
++  def i4r : InstOp3Imm4Reg<op, (outs GPR:$op0), (ins simm4:$imm, GPR:$op2),
 +                           !strconcat(opstr, " $op0, $imm, $op2"), []>;
++
++  def i16r : InstOp3Imm16Reg<op, (outs GPR:$op0), (ins uimm16:$imm, GPR:$op2),
++                             !strconcat(opstr, " $op0, $imm, $op2"), []>;
++}
++
++multiclass Comparison<bits<6> op, string opstr, SDNode opnode> {
++  def rr : InstOp2Reg<op, (outs), (ins GPR:$op0, GPR:$op1),
++                      !strconcat(opstr, " $op0, $op1"),
++                      [(opnode GPR:$op0, GPR:$op1)]>;
++
++  let AddedComplexity = 1 in
++  def ri4 : InstOp2RegImm4<op, (outs), (ins GPR:$op0, simm4:$imm),
++                           !strconcat(opstr, " $op0, $imm"),
++                           [(opnode GPR:$op0, simm4:$imm)]>;
++
++  def ri16 : InstOp2RegImm16<op, (outs), (ins GPR:$op0, uimm16:$imm),
++                             !strconcat(opstr, " $op0, $imm"),
++                             [(opnode GPR:$op0, uimm16:$imm)]>;
++
++  let AddedComplexity = 1 in
++  def i4r : InstOp2Imm4Reg<op, (outs), (ins simm4:$imm, GPR:$op0),
++                           !strconcat(opstr, " $imm, $op0"),
++                           [(opnode simm4:$imm, GPR:$op0)]>;
++
++  def i16r : InstOp2Imm16Reg<op, (outs), (ins uimm16:$imm, GPR:$op0),
++                             !strconcat(opstr, " $imm, $op0"),
++                             [(opnode uimm16:$imm, GPR:$op0)]>;
++}
++
++multiclass CondBranch<bits<6> op, string opstr, SDNode opnode> {
++  let AddedComplexity = 1 in
++  def a5 : InstBranchCond5<op, (outs), (ins brtarget5:$addr, ccode:$cc),
++                           !strconcat(!subst("#", "$cc", opstr), " $addr"),
++                           [(opnode bb:$addr, imm:$cc)]>;
++
++  def a16 : InstBranchCond16<op, (outs), (ins brtarget16:$addr, ccode:$cc),
++                             !strconcat(!subst("#", "$cc", opstr), " $addr"),
++                             [(opnode bb:$addr, imm:$cc)]>;
 +}
 +
 +//===----------------------------------------------------------------------===//
@@ -3320,30 +4173,41 @@ index 000000000000..090788fa8d5c
 +//===----------------------------------------------------------------------===//
 +
 +defm MOV : Move<0b000001, "MOV">;
-+defm LDR : Load<0b000010, "LDR">;
-+defm LDX : IndexedLoad<0b000011, "LDX">;
-+defm STR : Store<0b000100, "STR">;
-+defm STX : IndexedStore<0b000101, "STX">;
++
++let mayLoad = 1 in {
++  defm LDR : Load<0b000010, "LDR">;
++  defm LDX : IndexedLoad<0b000011, "LDX">;
++}
++
++let mayStore = 1 in {
++  defm STR : Store<0b000100, "STR">;
++  defm STX : IndexedStore<0b000101, "STX">;
++}
++
 +defm ADD : BinaryArith<0b010000, "ADD", add>;
 +defm SUB : AsymmetricArith<0b010100, "SUB", sub>;
-+// TODO: YaRISC not yet assigned
++// TODO: YaRISC Not yet assigned.
 +defm XOR : BinaryArith<0b111100, "XOR", xor>;
 +
-+// TODO: YaRISC need to model flags
-+// let Defs = [NZCV] in {
-+//   defm ADDS : BinaryArith<0b010001, "ADDS", add>;
-+//   defm SUBS : AsymmetricArith<0b010101, "SUBS", sub>;
-+// }
++let Defs = [NZCV] in {
++  defm ADDS : BinaryArith<0b010001, "ADDS", add>;
++  defm SUBS : AsymmetricArith<0b010101, "SUBS", sub>;
++  defm CMP : Comparison<0b101010, "CMP", YaRISCCmp>;
++}
++
++let Uses = [NZCV] in {
++  defm BCC : CondBranch<0b101100, "B#", YaRISCBrcond>;
++}
 +
 +def NOP : InstOp0<0b111111, (outs), (ins), "NOP", []>;
 +
 +def SUBreg : PatFrag<(ops node:$rs, node:$imm),
 +                     (add (sub 0, node:$rs), node:$imm)>;
 +
-+def : Pat<(SUBreg GPR:$rs, imm:$imm),
-+          (SUBi16r i16imm:$imm, GPR:$rs)>;
++def : Pat<(SUBreg GPR:$rs, uimm16:$imm),
++          (SUBi16r imm:$imm, GPR:$rs)>;
 +def : Pat<(SUBreg GPR:$rs, simm4:$imm),
-+          (SUBi4r i16imm:$imm, GPR:$rs)>;
++          (SUBi4r imm:$imm, GPR:$rs)>;
 +
 +def to_tframeindex : SDNodeXForm<frameindex, [{
 +  return CurDAG->getTargetFrameIndex(N->getIndex(), N->getValueType(0));
@@ -3367,10 +4231,10 @@ index 000000000000..090788fa8d5c
 +let Defs = [SP], Uses = [SP] in {
 +  def ADJCALLSTACKDOWN : Pseudo<(outs), (ins i16imm:$amt, i16imm:$align),
 +                                "#ADJCALLSTACKDOWN $amt $align",
-+                                [(callseq_start timm:$amt, timm:$align)] >;
++                                [(CallSeqStart timm:$amt, timm:$align)]>;
 +  def ADJCALLSTACKUP : Pseudo<(outs), (ins i16imm:$amt, i16imm:$align),
 +                              "#ADJCALLSTACKUP $amt $align",
-+                              [(callseq_end timm:$amt, timm:$align)] >;
++                              [(CallSeqEnd timm:$amt, timm:$align)]>;
 +}
 +
 +let Uses = [SP] in {
@@ -3381,9 +4245,15 @@ index 000000000000..090788fa8d5c
 +  def RET : Pseudo<(outs), (ins), "#RET", []>;
 +}
 +
-+def : Pat<(call tglobaladdr:$target), (CALL tglobaladdr:$target)>;
-+def : Pat<(call texternalsym:$target), (CALL texternalsym:$target)>;
-+def : Pat<(ret), (RET)>;
++def : Pat<(YaRISCCall tglobaladdr:$target), (CALL tglobaladdr:$target)>;
++def : Pat<(YaRISCCall texternalsym:$target), (CALL texternalsym:$target)>;
++def : Pat<(YaRISCRetGlue), (RET)>;
++
++let Uses = [NZCV], usesCustomInserter = 1 in
++def SELECT : Pseudo<(outs GPR:$dst), (ins GPR:$lhs, GPR:$rhs, ccode:$cc),
++                    "#SELECT $lhs, $rhs, $cc",
++                    [(set i16:$dst,
++                      (YaRISCSelectCC i16:$lhs, i16:$rhs, imm:$cc))]>;
 diff --git a/llvm/lib/Target/YaRISC/YaRISCRegisterInfo.cpp b/llvm/lib/Target/YaRISC/YaRISCRegisterInfo.cpp
 new file mode 100644
 index 000000000000..7d9565fd52a4
@@ -3585,7 +4455,7 @@ index 000000000000..6a049d822298
 +#endif // LLVM_LIB_TARGET_YARISC_YARISCREGISTERINFO_H
 diff --git a/llvm/lib/Target/YaRISC/YaRISCRegisterInfo.td b/llvm/lib/Target/YaRISC/YaRISCRegisterInfo.td
 new file mode 100644
-index 000000000000..afbb3a5339bf
+index 000000000000..8b71851e5b56
 --- /dev/null
 +++ b/llvm/lib/Target/YaRISC/YaRISCRegisterInfo.td
 @@ -0,0 +1,44 @@
@@ -3621,15 +4491,15 @@ index 000000000000..afbb3a5339bf
 +def SP : YaRISCReg<6, "sp">, DwarfRegNum<[6]>;
 +def IP : YaRISCReg<7, "ip">, DwarfRegNum<[7]>;
 +
-+// Status register (negative/zero/carry/overflow)
-+def NZCV : YaRISCCtrlReg<"NZCV">;
-+
 +// Register class for the general purpose registers.
 +def GPR : RegisterClass<"YaRISC", [i16], 16,
 +                        (add R0, R1, R2, R3, R4, R5, SP, IP)>;
 +
++// Status register (negative/zero/carry/overflow)
++def NZCV : YaRISCCtrlReg<"NZCV">;
++
 +// Register class for the status register.
-+def SR : RegisterClass<"YaRISC", [i16], 16, (add NZCV)> {
++def CCR : RegisterClass<"YaRISC", [i16], 16, (add NZCV)> {
 +  let CopyCost = -1; // Don't allow copying of status registers.
 +  let isAllocatable = 0;
 +}
@@ -3694,10 +4564,10 @@ index 000000000000..16affe0579a4
 +#endif // LLVM_LIB_TARGET_YARISC_YARISCSELECTIONDAGINFO_H
 diff --git a/llvm/lib/Target/YaRISC/YaRISCSubtarget.cpp b/llvm/lib/Target/YaRISC/YaRISCSubtarget.cpp
 new file mode 100644
-index 000000000000..45e328df4558
+index 000000000000..7274545f7aea
 --- /dev/null
 +++ b/llvm/lib/Target/YaRISC/YaRISCSubtarget.cpp
-@@ -0,0 +1,95 @@
+@@ -0,0 +1,96 @@
 +//===-- YaRISCSubtarget.cpp - YaRISC Subtarget Information ----------------===//
 +//
 +// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
@@ -3715,6 +4585,7 @@ index 000000000000..45e328df4558
 +#include "llvm/ADT/StringRef.h"
 +#include "llvm/MC/TargetRegistry.h"
 +#include "llvm/Support/MathExtras.h"
++#include "llvm/Target/TargetMachine.h"
 +
 +using namespace llvm;
 +
